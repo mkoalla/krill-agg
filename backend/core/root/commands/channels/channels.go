@@ -2,6 +2,7 @@ package channels
 
 import (
 	"fmt"
+	"krill-agg/root/info/theme"
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/types"
 	"slices"
@@ -193,7 +194,7 @@ func respond(do action, bcp bcpackage) EventCallback {
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content:         summary,
-				Embeds:          []*discordgo.MessageEmbed{{Title: title, Description: list}},
+				Embeds:          []*discordgo.MessageEmbed{{Title: title, Description: list, Color: theme.ACCENT}},
 				AllowedMentions: &discordgo.MessageAllowedMentions{},
 			},
 		})

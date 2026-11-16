@@ -2,6 +2,7 @@ package stats
 
 import (
 	"fmt"
+	"krill-agg/root/info/theme"
 	"krill-agg/root/krillion"
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/managers/scores"
@@ -62,7 +63,7 @@ func Board(day int, entries []scores.Entry) *discordgo.MessageEmbed {
 		}
 		desc = strings.Join(lines, "\n")
 	}
-	return &discordgo.MessageEmbed{Title: krillion.Header(day), Description: desc}
+	return &discordgo.MessageEmbed{Title: krillion.Header(day), Description: desc, Color: theme.ACCENT}
 }
 
 // map is already reference-like but just for continuity

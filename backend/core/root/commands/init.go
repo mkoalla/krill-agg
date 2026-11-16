@@ -11,9 +11,12 @@ import (
 	"krill-agg/root/commands/score"
 	"krill-agg/root/commands/stats"
 	"krill-agg/root/commands/submit"
+	"krill-agg/root/commands/top"
 	"krill-agg/root/commands/version"
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/managers/components"
+	"krill-agg/root/managers/leaderboard"
+	"krill-agg/root/managers/pages"
 	"krill-agg/root/managers/scores"
 	"krill-agg/root/managers/tracking"
 	"krill-agg/root/types"
@@ -23,11 +26,13 @@ type CommandInfo = types.CommandInfo
 type EventCallback = types.EventCallback
 
 type RegisterReqs struct {
-	Auth       *authorize.AuthManager
-	Components *components.ComponentCallbackManager
-	Scores     *scores.ScoreManager
-	Tracking   *tracking.TrackingManager
-	DataDir    string
+	Auth        *authorize.AuthManager
+	Components  *components.ComponentCallbackManager
+	Pages       *pages.Manager
+	Leaderboard *leaderboard.Manager
+	Scores      *scores.ScoreManager
+	Tracking    *tracking.TrackingManager
+	DataDir     string
 }
 
 var registers = []func(*types.BotCommandPackage){
@@ -41,6 +46,7 @@ var registers = []func(*types.BotCommandPackage){
 	score.Register,
 	stats.Register,
 	submit.Register,
+	top.Register,
 	version.Register,
 }
 
@@ -52,11 +58,15 @@ func Register(reqs RegisterReqs) *types.BotCommandPackage {
 		MessageHandlers: &messageHandlers,
 		Auth:            reqs.Auth,
 		Components:      reqs.Components,
+		Pages:           reqs.Pages,
+		Leaderboard:     reqs.Leaderboard,
 		Scores:          reqs.Scores,
 		Tracking:        reqs.Tracking,
 		DataDir:         reqs.DataDir,
 	}
 
+	// flips reach the pages manager through the components' prefix routing
+	bcp.Pages.Register(bcp.Components.AddPrefixHandler)
 	for _, reg := range registers {
 		reg(&bcp)
 	}

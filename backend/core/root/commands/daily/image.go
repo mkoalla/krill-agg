@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"krill-agg/root/info/dailygen"
+	"krill-agg/root/info/theme"
 	"krill-agg/root/krillion"
 	"krill-agg/root/types"
 	"os"
@@ -117,7 +118,11 @@ func (t ticket) done() {
 	})
 }
 
+// guild is the fallback for when discord leaves the message's own guild off
 func jumpLink(guild string, msg *discordgo.Message) string {
+	if msg.GuildID != "" {
+		guild = msg.GuildID
+	}
 	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", guild, msg.ChannelID, msg.ID)
 }
 
@@ -186,7 +191,7 @@ func GenerateImage(s *discordgo.Session, bcp *types.BotCommandPackage, snap *Sna
 }
 
 func imageEmbed(description string, url string) *discordgo.MessageEmbed {
-	embed := &discordgo.MessageEmbed{Description: description}
+	embed := &discordgo.MessageEmbed{Description: description, Color: theme.ACCENT}
 	if url != "" {
 		embed.Image = &discordgo.MessageEmbedImage{URL: url}
 	}
@@ -320,14 +325,15 @@ func PostDaily(s *discordgo.Session, bcp *types.BotCommandPackage, channel strin
 			return "", fmt.Errorf("channel %s: %v", channel, err)
 		}
 	}
-	if ch.GuildID == "" {
+	g := ch.GuildID
+	if g == "" {
 		return "", fmt.Errorf("channel %s isn't in a guild", channel)
 	}
 	day := krillion.Today()
 	opts := ImageOptions{Fresh: true, Winners: true}
-	t := claimWait(ch.GuildID, day, opts)
+	t := claimWait(g, day, opts)
 	defer t.done()
-	embeds, snap, err := Report(bcp, ch.GuildID, day)
+	embeds, snap, err := Report(bcp, g, day)
 	if err != nil {
 		return "", err
 	}
@@ -335,5 +341,5 @@ func PostDaily(s *discordgo.Session, bcp *types.BotCommandPackage, channel strin
 	if msg == nil {
 		return "", err
 	}
-	return jumpLink(ch.GuildID, msg), err
+	return jumpLink(g, msg), err
 }

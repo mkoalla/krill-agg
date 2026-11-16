@@ -131,3 +131,26 @@ func (man *ScoreManager) Day(guild guildID, day int) ([]Entry, error) {
 	})
 	return entries, nil
 }
+
+// every result in a guild, any day, unsorted, leaving out the excluded users
+// (what the leaderboards are built from)
+func (man *ScoreManager) Guild(guild guildID, exclude []uid) ([]Entry, error) {
+	rows, err := man.db.Guild(guild, exclude)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]Entry, 0, len(rows))
+	for _, row := range rows {
+		p, err := krillion.Rebuild(row.Day, row.Emojis)
+		if err != nil {
+			return nil, fmt.Errorf("stored score for %s day %d: %v", row.UserID, row.Day, err)
+		}
+		entries = append(entries, Entry{UserID: row.UserID, Score: p})
+	}
+	return entries, nil
+}
+
+// everyone who has played in the guild, except the excluded
+func (man *ScoreManager) Players(guild guildID, exclude []uid) ([]uid, error) {
+	return man.db.Players(guild, exclude)
+}
