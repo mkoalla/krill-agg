@@ -133,6 +133,7 @@ func main() {
 		Components: components.New(),
 		Scores:     getManScores(),
 		Tracking:   getManTracking(),
+		DataDir:    DATA_PATH,
 	})
 
 	session, err := bot.Start(bot.StartInstructions{

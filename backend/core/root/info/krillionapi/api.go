@@ -62,16 +62,17 @@ func Complete(date string, score int) (Stats, error) {
 
 // percent of players below score, estimated from the histogram alone:
 // every bucket under it, plus a linear share of its own bucket
-func (s Stats) Percentile(score int) float64 {
+func (s Stats) Percentile(score float64) float64 {
 	if s.Sample <= 0 || len(s.Dist) == 0 {
 		return 0
 	}
-	bucket := min(max(score, 0)/BUCKET_WIDTH, len(s.Dist)-1)
+	score = max(score, 0)
+	bucket := min(int(score)/BUCKET_WIDTH, len(s.Dist)-1)
 	below := 0.0
 	for _, count := range s.Dist[:bucket] {
 		below += count
 	}
-	into := float64(score-bucket*BUCKET_WIDTH) / BUCKET_WIDTH
+	into := (score - float64(bucket*BUCKET_WIDTH)) / BUCKET_WIDTH
 	below += s.Dist[bucket] * min(into, 1)
 	return 100 * below / float64(s.Sample)
 }

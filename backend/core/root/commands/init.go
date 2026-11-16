@@ -27,6 +27,7 @@ type RegisterReqs struct {
 	Components *components.ComponentCallbackManager
 	Scores     *scores.ScoreManager
 	Tracking   *tracking.TrackingManager
+	DataDir    string
 }
 
 var registers = []func(*types.BotCommandPackage){
@@ -53,6 +54,7 @@ func Register(reqs RegisterReqs) *types.BotCommandPackage {
 		Components:      reqs.Components,
 		Scores:          reqs.Scores,
 		Tracking:        reqs.Tracking,
+		DataDir:         reqs.DataDir,
 	}
 
 	for _, reg := range registers {

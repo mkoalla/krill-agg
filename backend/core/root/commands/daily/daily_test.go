@@ -1,6 +1,11 @@
 package daily
 
-import "testing"
+import (
+	"krill-agg/root/info/krillionapi"
+	"krill-agg/root/krillion"
+	"krill-agg/root/managers/scores"
+	"testing"
+)
 
 func TestCommas(t *testing.T) {
 	for n, want := range map[int]string{0: "0", 999: "999", 1000: "1,000", 3245071: "3,245,071", -12345: "-12,345"} {
@@ -15,5 +20,26 @@ func TestPercentileLine(t *testing.T) {
 		if got := percentileLine("1", p); got != want {
 			t.Errorf("percentileLine(%v) = %q, want %q", p, got, want)
 		}
+	}
+}
+
+func TestHeading(t *testing.T) {
+	if got := Heading(124); got != "# Krillion Daily #124 🦐" {
+		t.Errorf("Heading() = %q", got)
+	}
+}
+
+func TestCombined(t *testing.T) {
+	dist := krillionapi.Stats{Sample: 3245071, Dist: []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3245071, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
+	entries := []scores.Entry{{UserID: "1", Score: krillion.PlayerScore{Day: 124, Score: 415, Choices: []string{"🦑", "🦑", "🦑", "🐟", "🦑", "🦑", "🏮"}}}}
+	want := "`🦑🦑🦑🐟🦑🦑🏮` - `415` - <@1>\n### Percentiles\nPlayers today: `3,245,071`\n\n`~100%` - <@1>"
+	got := Combined(124, entries, dist)
+	if got.Title != "Scores" || got.Description != want {
+		t.Errorf("Combined() = %q / %q\nwant %q", got.Title, got.Description, want)
+	}
+
+	empty := Combined(124, nil, dist)
+	if empty.Description != "No players yet!\n### Percentiles\nPlayers today: `3,245,071`" {
+		t.Errorf("empty Combined() = %q", empty.Description)
 	}
 }

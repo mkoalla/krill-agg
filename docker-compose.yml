@@ -2,17 +2,33 @@ services:
   main:
     env_file: .env
 
-    # host networking: the bot serves no ports, and a bridge network can't get
-    # out on hosts whose tailscale exit node swallows forwarded container traffic
-    network_mode: host
-
     build:
       context: ./backend
-      network: host
       no_cache: true
 
     volumes:
       - ./data:/app/data/
 
+    networks: [krill-agg]
+    depends_on: [dailygen]
+
     restart: unless-stopped
     image: krill-agg:latest
+
+  # renders the /forcedaily card; only the bot talks to it, over krill-agg.
+  # reads avatars from and writes cards to data/daily/ on the same mount
+  dailygen:
+    build:
+      context: ./backend/dailygen
+
+    volumes:
+      - ./data:/app/data/
+
+    networks: [krill-agg]
+
+    restart: unless-stopped
+    image: krill-agg-dailygen:latest
+
+networks:
+  krill-agg:
+    name: krill-agg

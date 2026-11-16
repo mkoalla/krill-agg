@@ -32,6 +32,7 @@ type BotCommandPackage struct {
 	Components      *components.ComponentCallbackManager
 	Scores          *scores.ScoreManager
 	Tracking        *tracking.TrackingManager
+	DataDir         string // the shared data mount (also seen by dailygen)
 }
 
 type SessionCommandRegisters struct {

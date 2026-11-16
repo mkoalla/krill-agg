@@ -19,7 +19,7 @@ type CommandInfo = types.CommandInfo
 type EventCallback = types.EventCallback
 
 var metadata = types.CommandMetadata{
-	MinTrustLevel: authorize.MANAGE,
+	MinTrustLevel: authorize.DEFAULT,
 }
 
 // 3245071 -> "3,245,071"
@@ -45,29 +45,51 @@ func percentileLine(uid string, percent float64) string {
 
 // percentiles from one distribution lookup, same order as the board
 // (sorted by score, so also by percentile)
-func Percentiles(stats krillionapi.Stats, entries []scores.Entry) *discordgo.MessageEmbed {
-	lines := []string{fmt.Sprintf("Players today: `%s`", commas(stats.Sample)), ""}
-	if len(entries) == 0 {
-		lines = append(lines, "No players yet!")
+func Percentiles(stats krillionapi.Stats, entries []scores.Entry) string {
+	lines := []string{fmt.Sprintf("Players today: `%s`", commas(stats.Sample))}
+	if len(entries) > 0 {
+		lines = append(lines, "")
 	}
 	for _, e := range entries {
-		lines = append(lines, percentileLine(e.UserID, stats.Percentile(e.Score.Score)))
+		lines = append(lines, percentileLine(e.UserID, stats.Percentile(float64(e.Score.Score))))
 	}
-	return &discordgo.MessageEmbed{Title: "Percentiles", Description: strings.Join(lines, "\n")}
+	return strings.Join(lines, "\n")
 }
 
-// today's board plus percentiles. one api call, everything else is interpolated
-func Report(bcp *types.BotCommandPackage, guild string) ([]*discordgo.MessageEmbed, error) {
-	day := krillion.Today()
+// the message's own heading, above the embeds: "# Krillion Daily #124 🦐"
+func Heading(day int) string {
+	return fmt.Sprintf("# Krillion Daily Results #%d 🦐", day)
+}
+
+// the board with the percentiles as a second section of the same embed. the
+// day is in the message heading, so the embed is just "Scores"
+func Combined(day int, entries []scores.Entry, dist krillionapi.Stats) *discordgo.MessageEmbed {
+	embed := stats.Board(day, entries)
+	embed.Title = "Scores"
+	embed.Description += "\n### Percentiles\n" + Percentiles(dist, entries)
+	return embed
+}
+
+// everything one report is built from, kept so the image step needn't refetch
+type Snapshot struct {
+	Guild   string
+	Day     int
+	Entries []scores.Entry
+	Dist    krillionapi.Stats
+}
+
+// the day's board and percentiles in one embed (the api only serves today). one api call, everything else is interpolated
+func Report(bcp *types.BotCommandPackage, guild string, day int) ([]*discordgo.MessageEmbed, *Snapshot, error) {
 	entries, err := bcp.Scores.Day(guild, day)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	dist, err := krillionapi.Complete(krillion.DateOf(day), krillionapi.MIDDLE_SCORE)
 	if err != nil {
-		return nil, fmt.Errorf("fetching today's distribution: %v", err)
+		return nil, nil, fmt.Errorf("fetching today's distribution: %v", err)
 	}
-	return []*discordgo.MessageEmbed{stats.Board(day, entries), Percentiles(dist, entries)}, nil
+	snap := &Snapshot{Guild: guild, Day: day, Entries: entries, Dist: dist}
+	return []*discordgo.MessageEmbed{Combined(day, entries, dist)}, snap, nil
 }
 
 // map is already reference-like but just for continuity
@@ -85,7 +107,14 @@ func Register(bcp *types.BotCommandPackage) {
 			}); err != nil {
 				return err
 			}
-			embeds, err := Report(bcp, i.GuildID)
+			day := krillion.Today()
+			// one render per guild: a call made while one is underway just links to it
+			t, err := claimFor(s, i, day, ImageOptions{})
+			if t == nil || err != nil {
+				return err
+			}
+			defer t.done()
+			embeds, snap, err := Report(bcp, i.GuildID, day)
 			if err != nil {
 				content := "❌ " + err.Error()
 				_, errEdit := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content})
@@ -94,11 +123,8 @@ func Register(bcp *types.BotCommandPackage) {
 				}
 				return err
 			}
-			_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Embeds:          &embeds,
-				AllowedMentions: &discordgo.MessageAllowedMentions{},
-			})
-			return err
+			// a person asking again soon gets the recent card instead of a re-render
+			return withImage(s, i, bcp, snap, embeds, t)
 		},
 	}
 }

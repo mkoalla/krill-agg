@@ -14,10 +14,10 @@ var snapshot = Stats{
 
 func TestPercentile(t *testing.T) {
 	// within a point of what the api said, except 400 (players cluster unevenly in that bucket)
-	cases := map[int]float64{0: 0, 175: 10, 245: 30, 250: 32, 265: 38, 280: 45, 300: 53, 350: 72, 455: 95, 525: 99, 630: 99.94, 665: 99.99}
+	cases := map[float64]float64{0: 0, 175: 10, 245: 30, 250: 32, 265: 38, 280: 45, 300: 53, 350: 72, 455: 95, 525: 99, 630: 99.94, 665: 99.99}
 	for score, want := range cases {
 		if got := snapshot.Percentile(score); math.Abs(got-want) > 1 {
-			t.Errorf("Percentile(%d) = %.2f, api said %.2f", score, got, want)
+			t.Errorf("Percentile(%v) = %.2f, api said %.2f", score, got, want)
 		}
 	}
 	if got := snapshot.Percentile(700); got != 100 {
