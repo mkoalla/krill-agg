@@ -1,0 +1,163 @@
+package csv
+
+import (
+	"cmp"
+	"fmt"
+	"os"
+	"poll-bot/root/info/unix"
+	"poll-bot/root/managers/aliases"
+	"poll-bot/root/managers/polls"
+	"regexp"
+	"slices"
+	"strings"
+	"time"
+)
+
+type snowflake = string
+
+var answerMap = map[string]string{
+	"⭐⭐⭐⭐⭐":   "5",
+	"⭐⭐⭐⭐":    "4",
+	"⭐⭐⭐":     "3",
+	"⭐⭐":      "2",
+	"⭐":       "1",
+	"N/A":     "N/A",
+	"NO DATA": "N/A",
+}
+
+type pollPair struct {
+	id     string
+	time   int64
+	title  string
+	votes  *int
+	active bool
+}
+
+var titleFilter = regexp.MustCompile(",")
+
+func ToCSV(path string, recs []*polls.FinalRecord, aliases *aliases.AliasManager, descending bool) (*strings.Builder, error) {
+	var file *os.File
+	var err error
+	if path != "" {
+		file, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close() //nolint
+	}
+	// const HEADER = "Date, Topic, Total, Users...,  <END>"
+
+	voterNames := make(map[snowflake]string)
+	pollOrder := make([]pollPair, 0)
+	voterOrder := make([]snowflake, 0)
+	mappedRecData := make(map[string]map[snowflake]string) // map[title]map[user]choice
+
+	//prelim validating / building aliases
+	for _, rec := range recs {
+		//the map key and the column emitted for pollPair.title must be the
+		//same string, or a title containing a comma (stripped here but not
+		//in the map key) fails the lookup below and the whole poll is
+		//silently dropped from the output.
+		filteredTitle := titleFilter.ReplaceAllString(rec.Title, "")
+		thisPoll := make(map[snowflake]string)
+		mappedRecData[filteredTitle] = thisPoll
+		id := rec.Metadata.Message.ID
+		time, err := unix.SnowflakeToTime(id)
+		if err != nil {
+			continue
+		}
+		pollVotes := 0
+		pollOrder = append(pollOrder, pollPair{
+			id: id, time: time.Unix(), title: filteredTitle, votes: &pollVotes, active: rec.Active,
+		})
+
+		//a poll can total zero votes either because its answers are not a
+		//rating scale at all, or because every voter abstained with N/A.
+		//Only the first is noise worth dropping.
+		isRating := true
+		match := regexp.MustCompile(`^(⭐+|N/A)(?: \(.*\))?$`)
+		for _, choice := range rec.Answers {
+			segments := match.FindStringSubmatch(choice.Title)
+			if len(segments) <= 1 { //def not one
+				isRating = false
+				pollVotes = 0
+				break
+			}
+			title := strings.ToUpper(segments[1])
+			for _, id := range choice.Voters {
+				// ignore bad titles & crop comment
+				choice, ok := answerMap[title]
+				if !ok {
+					continue
+				}
+
+				// add user if unique
+				if _, ok := voterNames[id]; !ok {
+					if alias := aliases.GetAlias(id); alias != "?" {
+						voterNames[id] = alias
+					} else {
+						voterNames[id] = id
+					}
+					//insert for ordering
+					voterOrder = append(voterOrder, id)
+				}
+
+				//insert for building
+				thisPoll[id] = choice
+				if choice != answerMap["N/A"] {
+					pollVotes++
+				}
+			}
+		}
+		if !isRating {
+			delete(mappedRecData, filteredTitle)
+		}
+	}
+
+	// lexicographically sort for column consistency
+	slices.Sort(voterOrder)
+	//row order is decided here, not by the caller's query. Whatever order the
+	//records arrived in is discarded by this sort, so the caller's direction
+	//has to be threaded in rather than assumed from the slice.
+	slices.SortFunc(pollOrder, func(a pollPair, b pollPair) int {
+		if descending {
+			return cmp.Compare(b.time, a.time)
+		}
+		return cmp.Compare(a.time, b.time)
+	})
+
+	//build now
+	out := strings.Builder{}
+	out.WriteString("ID, Date, Active, Topic, Total, ")
+	for _, id := range voterOrder {
+		fmt.Fprintf(&out, "%s, ", voterNames[id])
+	}
+	out.WriteString("<END>")
+	//
+	for _, pair := range pollOrder {
+		thisPoll, ok := mappedRecData[pair.title]
+		if !ok { //zero-vote poll, dropped upstream
+			continue
+		}
+		id, time, title, votes := pair.id, time.Unix(pair.time, 0).Format("01/02/2006"), pair.title, *pair.votes
+		active := 0
+		if pair.active {
+			active = 1
+		}
+		fmt.Fprintf(&out, "\n%s, %s, %d, %s, %d, ", id, time, active, title, votes)
+
+		for _, id := range voterOrder {
+			msg, ok := thisPoll[id]
+			if !ok {
+				msg = "N/A"
+			}
+			fmt.Fprintf(&out, "%s, ", msg)
+		}
+		out.WriteString("<END>")
+	}
+	if file != nil {
+		_, err := file.WriteString(out.String())
+		return &out, err
+	}
+	return &out, nil
+}

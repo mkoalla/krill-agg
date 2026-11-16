@@ -1,0 +1,17 @@
+# temp while scope is limited to testing
+services:
+    # restart: unless-stopped
+    # gpus: all
+  query-routing:
+    container_name: query-routing
+    env_file:
+      - .env
+    build: .
+    image: poll-bot-query-routing:latest
+    volumes:
+      - ./settings/:/settings/
+    
+
+networks:
+  poll-bot:
+    driver: bridge

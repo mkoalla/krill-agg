@@ -1,0 +1,13 @@
+#environment
+.env
+
+#top level scripts (some of my stuff)
+/*.sh
+
+#unnecessary
+README.md
+Dockerfile
+docker-compose.yml
+.dockerignore
+.gitignore
+Makefile

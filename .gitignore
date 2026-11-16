@@ -1,0 +1,11 @@
+.env
+.env.local
+
+data/
+.lost/
+build/
+/*.sh
+
+# compiled frontend, embedded at build time (see `make web`)
+**/dist/*
+!.gitkeep

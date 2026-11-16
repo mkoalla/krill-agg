@@ -1,0 +1,12 @@
+#py
+.venv/
+__pycache__/
+.ruff_cache/
+
+.env
+
+# irrelevant
+docker-compose.yml
+Makefile
+
+.vscode/
