@@ -1,4 +1,4 @@
-.PHONY : init built up down logs dev update
+.PHONY : init built up down logs dev update live-daily
 .DEFAULT_GOAL := build # -> just make
 
 # setup data/ and link env
@@ -26,6 +26,15 @@ down:
 
 logs:
 	$(MAKE) -C ./backend/ logs
+
+# posts today's report (always a fresh card) in each CHANNEL from the running
+# bot, for cron: make live-daily CHANNEL="<channel-id> [<channel-id>...]"
+live-daily:
+	@if [ -z "$(CHANNEL)" ]; then \
+		echo 'usage: make live-daily CHANNEL="<channel-id>..."'; \
+		exit 1; \
+	fi
+	docker compose exec -T main ./main ctl daily $(CHANNEL)
 
 DEV_DAILYGEN_PORT := 40404
 

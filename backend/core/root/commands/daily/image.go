@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"krill-agg/root/info/dailygen"
+	"krill-agg/root/krillion"
 	"krill-agg/root/types"
 	"os"
 	"path/filepath"
@@ -26,11 +27,14 @@ type cachedImage struct {
 }
 
 // the one render underway in a guild. link (to the reply carrying it) is set
-// before posted closes, and stays empty if that reply never went out
+// before posted closes, and stays empty if that reply never went out. finished
+// closes once the render is over and its card (if any) remembered
 type inflight struct {
-	posted chan struct{}
-	once   sync.Once
-	link   string
+	posted   chan struct{}
+	finished chan struct{}
+	once     sync.Once // publish
+	ended    sync.Once // done
+	link     string
 }
 
 func (r *inflight) publish(link string) {
@@ -91,30 +95,30 @@ func claim(guild string, day int, now time.Time, fresh bool) ticket {
 	if r, ok := renders[guild]; ok {
 		return ticket{follow: r}
 	}
-	r := &inflight{posted: make(chan struct{})}
+	r := &inflight{posted: make(chan struct{}), finished: make(chan struct{})}
 	renders[guild] = r
 	return ticket{lead: r, guild: guild}
 }
 
-// frees the guild for the next render; followers still waiting on a reply
+// frees the guild for the next render (repeat calls are no-ops); followers still waiting on a reply
 // that never went out are released with no link and claim again
 func (t ticket) done() {
 	if t.lead == nil {
 		return
 	}
-	imageMu.Lock()
-	if renders[t.guild] == t.lead {
-		delete(renders, t.guild)
-	}
-	imageMu.Unlock()
-	t.lead.publish("")
+	t.lead.ended.Do(func() {
+		imageMu.Lock()
+		if renders[t.guild] == t.lead {
+			delete(renders, t.guild)
+		}
+		imageMu.Unlock()
+		t.lead.publish("")
+		close(t.lead.finished)
+	})
 }
 
-func jumpLink(guild, channel string, msg *discordgo.Message) string {
-	if msg.ChannelID != "" {
-		channel = msg.ChannelID
-	}
-	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", guild, channel, msg.ID)
+func jumpLink(guild string, msg *discordgo.Message) string {
+	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", guild, msg.ChannelID, msg.ID)
 }
 
 // the cdn url discord gave the uploaded card. the embed's image is rewritten
@@ -216,29 +220,68 @@ func claimFor(s *discordgo.Session, i *discordgo.InteractionCreate, day int, opt
 	}
 }
 
+// waits out any render underway in the guild, then claims it. for posts with
+// no reply to link from; with fresh it always ends up leading
+func claimWait(guild string, day int, opts ImageOptions) ticket {
+	for {
+		t := claim(guild, day, time.Now(), opts.Fresh)
+		if t.follow == nil {
+			return t
+		}
+		<-t.follow.finished
+	}
+}
+
+// puts the whole message (content and embeds) wherever it's going; each call
+// replaces the last. files are attached on top
+type sender = func(content string, embeds []*discordgo.MessageEmbed, files []*discordgo.File) (*discordgo.Message, error)
+
+var noPings = &discordgo.MessageAllowedMentions{}
+
+// edits the interaction's (deferred) reply
+func replySender(s *discordgo.Session, i *discordgo.InteractionCreate) sender {
+	return func(content string, embeds []*discordgo.MessageEmbed, files []*discordgo.File) (*discordgo.Message, error) {
+		return s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content, Embeds: &embeds, Files: files, AllowedMentions: noPings})
+	}
+}
+
+// a plain message in channel: sent on the first call, edited after
+func channelSender(s *discordgo.Session, channel string) sender {
+	var sent *discordgo.Message
+	return func(content string, embeds []*discordgo.MessageEmbed, files []*discordgo.File) (*discordgo.Message, error) {
+		if sent == nil {
+			msg, err := s.ChannelMessageSendComplex(channel, &discordgo.MessageSend{Content: content, Embeds: embeds, Files: files, AllowedMentions: noPings})
+			if err == nil {
+				sent = msg
+			}
+			return msg, err
+		}
+		return s.ChannelMessageEditComplex(&discordgo.MessageEdit{
+			ID: sent.ID, Channel: sent.ChannelID, Content: &content, Embeds: &embeds, Files: files, AllowedMentions: noPings,
+		})
+	}
+}
+
 // posts the report with the card as a second embed in the same message: a
 // cached card straight away, or a placeholder (so the board never waits) and
-// then an edit that attaches the png. t comes from claimFor
-func withImage(s *discordgo.Session, i *discordgo.InteractionCreate, bcp *types.BotCommandPackage, snap *Snapshot, report []*discordgo.MessageEmbed, t *ticket) error {
-	noPings := &discordgo.MessageAllowedMentions{}
+// then an edit that attaches the png. t comes from claimFor or claimWait
+func withImage(s *discordgo.Session, post sender, bcp *types.BotCommandPackage, snap *Snapshot, report []*discordgo.MessageEmbed, t *ticket) (*discordgo.Message, error) {
 	send := func(image *discordgo.MessageEmbed, files []*discordgo.File) (*discordgo.Message, error) {
 		embeds := append(append([]*discordgo.MessageEmbed{}, report...), image)
-		heading := Heading(snap.Day)
-		return s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &heading, Embeds: &embeds, Files: files, AllowedMentions: noPings})
+		return post(Heading(snap.Day), embeds, files)
 	}
 
 	if t.cached != nil {
-		_, err := send(imageEmbed(fmt.Sprintf("-# Image reused from <t:%d:R>", t.cached.at.Unix()), t.cached.url), nil)
-		return err
+		return send(imageEmbed(fmt.Sprintf("-# Image reused from <t:%d:R>", t.cached.at.Unix()), t.cached.url), nil)
 	}
 	msg, err := send(imageEmbed("-# generating image...", ""), nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	t.lead.publish(jumpLink(snap.Guild, i.ChannelID, msg))
-	fail := func(reason error) error {
+	t.lead.publish(jumpLink(snap.Guild, msg))
+	fail := func(reason error) (*discordgo.Message, error) {
 		_, errEdit := send(imageEmbed("-# couldn't produce image: "+reason.Error(), ""), nil)
-		return errors.Join(fmt.Errorf("daily image: %v", reason), errEdit)
+		return msg, errors.Join(fmt.Errorf("daily image: %v", reason), errEdit)
 	}
 
 	path, err := GenerateImage(s, bcp, snap)
@@ -252,14 +295,41 @@ func withImage(s *discordgo.Session, i *discordgo.InteractionCreate, bcp *types.
 	defer f.Close() //nolint
 
 	name := filepath.Base(path)
-	msg, err = send(imageEmbed("", "attachment://"+name), []*discordgo.File{{Name: name, ContentType: "image/png", Reader: f}})
+	final, err := send(imageEmbed("", "attachment://"+name), []*discordgo.File{{Name: name, ContentType: "image/png", Reader: f}})
 	if err != nil {
 		return fail(err)
 	}
-	url := postedURL(msg)
+	url := postedURL(final)
 	if url == "" {
-		return errors.New("daily image: posted, but discord returned no url to reuse")
+		return final, errors.New("daily image: posted, but discord returned no url to reuse")
 	}
 	remember(snap.Guild, cachedImage{day: snap.Day, at: time.Now(), url: url})
-	return nil
+	return final, nil
+}
+
+// today's report as a plain message in channel, for scheduled posts (no
+// interaction behind it). never cached: it waits out any render underway in
+// the guild, then renders its own. returns a link to the message
+func PostDaily(s *discordgo.Session, bcp *types.BotCommandPackage, channel string) (string, error) {
+	ch, err := s.State.Channel(channel)
+	if err != nil {
+		if ch, err = s.Channel(channel); err != nil {
+			return "", fmt.Errorf("channel %s: %v", channel, err)
+		}
+	}
+	if ch.GuildID == "" {
+		return "", fmt.Errorf("channel %s isn't in a guild", channel)
+	}
+	day := krillion.Today()
+	t := claimWait(ch.GuildID, day, ImageOptions{Fresh: true})
+	defer t.done()
+	embeds, snap, err := Report(bcp, ch.GuildID, day)
+	if err != nil {
+		return "", err
+	}
+	msg, err := withImage(s, channelSender(s, channel), bcp, snap, embeds, &t)
+	if msg == nil {
+		return "", err
+	}
+	return jumpLink(ch.GuildID, msg), err
 }

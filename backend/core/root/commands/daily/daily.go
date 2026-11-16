@@ -124,7 +124,8 @@ func Register(bcp *types.BotCommandPackage) {
 				return err
 			}
 			// a person asking again soon gets the recent card instead of a re-render
-			return withImage(s, i, bcp, snap, embeds, t)
+			_, err = withImage(s, replySender(s, i), bcp, snap, embeds, t)
+			return err
 		},
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"krill-agg/root/bot"
 	"krill-agg/root/commands"
+	"krill-agg/root/commands/daily"
+	"krill-agg/root/ctl"
 	"krill-agg/root/info/version"
 	"krill-agg/root/managers/audit"
 	"krill-agg/root/managers/authorize"
@@ -12,6 +14,7 @@ import (
 	"krill-agg/root/managers/scores"
 	"krill-agg/root/managers/tracking"
 	"log"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -110,13 +113,69 @@ func checkForUpdates() {
 		logger.Add(message, audit.LogGroup.INIT)
 	}
 }
+
+const CTL_USAGE = `usage: main ctl <command> [args]
+  daily <channel-id>...   post today's report (fresh card) in each channel`
+
+// the client half of the control socket: hands a command to the running bot
+func runCtl(args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, CTL_USAGE)
+		return 2
+	}
+	values := url.Values{}
+	switch args[0] {
+	case "daily":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, CTL_USAGE)
+			return 2
+		}
+		values["channel"] = args[1:]
+	default:
+		fmt.Fprintln(os.Stderr, CTL_USAGE)
+		return 2
+	}
+	out, err := ctl.Call(ctl.SOCKET, args[0], values)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if out != "" {
+		fmt.Println(out)
+	}
+	return 0
+}
+
+func startCtl(session *bot.Session) *ctl.Server {
+	srv, err := ctl.Serve(ctl.SOCKET, map[string]ctl.Handler{
+		"daily": daily.CtlDaily(session.DGSession, session.Package),
+	}, func(cmd string, args url.Values, out string, err error) {
+		call := fmt.Sprintf("ctl %s %v", cmd, args)
+		if err != nil {
+			logger.Warn(fmt.Sprintf("%s: %v", call, err), audit.LogGroup.CTL)
+			return
+		}
+		logger.Add(fmt.Sprintf("%s: %s", call, out), audit.LogGroup.CTL)
+	})
+	if err != nil {
+		// the bot still works; only scheduled posts are lost
+		logger.Warn(fmt.Sprintf("Couldn't open control socket: %v", err), audit.LogGroup.INIT, audit.LogGroup.CTL)
+		return nil
+	}
+	logger.Add("Control socket at "+ctl.SOCKET, audit.LogGroup.INIT, audit.LogGroup.CTL)
+	return srv
+}
+
 func main() {
 	if len(os.Args) > 1 {
-		if os.Args[1] == "--version" || os.Args[1] == "-v" {
+		switch os.Args[1] {
+		case "--version", "-v":
 			fmt.Printf("version: %s\nsource:  %s\n", version.Version(), version.Source())
 			os.Exit(0)
-		} else {
-			fmt.Printf("Run with no commands to start the bot.")
+		case "ctl":
+			os.Exit(runCtl(os.Args[2:]))
+		default:
+			fmt.Printf("Run with no commands to start the bot, or `ctl` to drive a running one.")
 			os.Exit(1)
 		}
 		return
@@ -146,6 +205,9 @@ func main() {
 		return
 	}
 	defer bot.EndSession(session)
+	if srv := startCtl(session); srv != nil {
+		defer srv.Close() //nolint
+	}
 
 	persist()
 }
