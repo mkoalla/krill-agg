@@ -5,12 +5,13 @@ go 1.27.0
 require (
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.4.2
+	github.com/rivo/uniseg v0.4.7
 	modernc.org/sqlite v1.30.2
 )
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect

@@ -9,7 +9,14 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/gorilla/websocket"
 )
+
+// message content is privileged and must be enabled for the bot in the developer portal
+const INTENTS = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsMessageContent
+
+// gateway close code for privileged intents the app isn't approved for
+const CLOSE_DISALLOWED_INTENTS = 4014
 
 type StartInstructions = types.StartInstructions
 type Session = types.Session
@@ -193,7 +200,7 @@ func Start(instr StartInstructions) (session *Session, err error) {
 
 	logger.Add("Begin bot init", audit.LogGroup.BOT)
 	// set perms "intents" & register gateway handler boilerplate
-	dgSession.Identify.Intents = discordgo.IntentsGuilds
+	dgSession.Identify.Intents = INTENTS
 	dgSession.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		handle, ok := dgInteractHandlers[i.Type]
 		if !ok {
@@ -212,9 +219,31 @@ func Start(instr StartInstructions) (session *Session, err error) {
 		}
 	})
 
+	// plain messages don't go through the interaction router; they're their own gateway event
+	dgSession.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
+		if m.Author == nil || m.Author.Bot {
+			return
+		}
+		for _, handler := range *instr.Commands.MessageHandlers {
+			msg, err := handler(s, m)
+			if msg != "" {
+				id := m.Author.ID
+				logger.Add(fmt.Sprintf("%v %02d  | %s", id, instr.Commands.Auth.GetRank(id), msg), audit.LogGroup.BOT, audit.LogGroup.MESSAGE)
+			}
+			if err != nil {
+				logger.Warn(err, audit.LogGroup.BOT, audit.LogGroup.MESSAGE)
+			}
+		}
+	})
+
 	// take a wild guess
 	err = dgSession.Open()
 	if err != nil {
+		// discord rejects privileged intents that aren't toggled on in the developer portal
+		var closeErr *websocket.CloseError
+		if errors.As(err, &closeErr) && closeErr.Code == CLOSE_DISALLOWED_INTENTS {
+			logger.Panic(fmt.Sprintf("Missing privileged intents (enable Message Content Intent under Bot in the Discord Developer Portal): %v", err), audit.LogGroup.BOT)
+		}
 		return
 	}
 

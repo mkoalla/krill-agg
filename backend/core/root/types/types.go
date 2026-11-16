@@ -4,6 +4,8 @@ import (
 	"krill-agg/root/managers/audit"
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/managers/components"
+	"krill-agg/root/managers/scores"
+	"krill-agg/root/managers/tracking"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -13,6 +15,10 @@ type CommandMetadata struct {
 }
 type EventCallback = func(s *discordgo.Session, i *discordgo.InteractionCreate) error
 
+// runs on every (non-bot) guild message. logMsg is only logged when non-empty,
+// so handlers decide which messages are worth an audit line
+type MessageCallback = func(s *discordgo.Session, m *discordgo.MessageCreate) (logMsg string, err error)
+
 type CommandInfo struct {
 	DGInfo   *discordgo.ApplicationCommand
 	Metadata CommandMetadata
@@ -20,9 +26,12 @@ type CommandInfo struct {
 }
 
 type BotCommandPackage struct {
-	Handles    *map[string]CommandInfo
-	Auth       *authorize.AuthManager
-	Components *components.ComponentCallbackManager
+	Handles         *map[string]CommandInfo
+	MessageHandlers *[]MessageCallback
+	Auth            *authorize.AuthManager
+	Components      *components.ComponentCallbackManager
+	Scores          *scores.ScoreManager
+	Tracking        *tracking.TrackingManager
 }
 
 type SessionCommandRegisters struct {

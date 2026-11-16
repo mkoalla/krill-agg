@@ -9,6 +9,8 @@ import (
 	"krill-agg/root/managers/audit"
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/managers/components"
+	"krill-agg/root/managers/scores"
+	"krill-agg/root/managers/tracking"
 	"log"
 	"os"
 	"os/signal"
@@ -111,6 +113,8 @@ func main() {
 	commands := commands.Register(commands.RegisterReqs{
 		Auth:       getManAuth(),
 		Components: components.New(),
+		Scores:     scores.New(),
+		Tracking:   tracking.New(),
 	})
 
 	session, err := bot.Start(bot.StartInstructions{
