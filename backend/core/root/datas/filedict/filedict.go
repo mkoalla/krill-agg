@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"iter"
 	"krill-agg/root/datas/sqlite"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -70,33 +69,61 @@ func (table *FileDict[K, V]) Iter() iter.Seq2[K, V] {
 	}
 }
 
-// write contents to the file
+// write the whole map to the file, replacing what's there. one transaction,
+// so a failure part way leaves the file as it was
 func (table *FileDict[K, V]) SyncWrite() error {
 	if err := table.lockOrClosed(); err != nil {
 		return err
 	}
 	defer table.mutex.Unlock()
+	return table.syncWriteLocked()
+}
 
-	if _, err := table.file.Exec(`DELETE FROM data;`); err != nil {
-		return err
-	}
-	if len(table.data) == 0 {
-		return nil
-	}
-
-	parts := make([]string, 0, len(table.data))
+// caller holds the write lock
+func (table *FileDict[K, V]) syncWriteLocked() error {
 	args := make([]any, 0, len(table.data)*2)
 	for k, v := range table.data {
 		jsonData, err := json.Marshal(&v)
 		if err != nil {
 			return fmt.Errorf("while marshaling %v: %v", v, err)
 		}
-		parts = append(parts, "(?, ?)")
 		args = append(args, k, jsonData)
 	}
-	query := "REPLACE INTO data (key, value) VALUES " + strings.Join(parts, ", ") + ";"
-	_, err := table.file.Exec(query, args...)
-	return err
+	return table.file.Tx(func(tx *sqlite.Tx) error {
+		if _, err := tx.Exec(`DELETE FROM data;`); err != nil {
+			return err
+		}
+		return tx.InsertRows("REPLACE INTO data (key, value) VALUES", 2, args)
+	})
+}
+
+// partial writes: change one key in memory and on file together.
+// memory is only touched once the file write succeeds
+func (table *FileDict[K, V]) SetSync(key K, value V) error {
+	if err := table.lockOrClosed(); err != nil {
+		return err
+	}
+	defer table.mutex.Unlock()
+	jsonData, err := json.Marshal(&value)
+	if err != nil {
+		return fmt.Errorf("while marshaling %v: %v", value, err)
+	}
+	if _, err := table.file.Exec(`REPLACE INTO data (key, value) VALUES (?, ?);`, key, jsonData); err != nil {
+		return err
+	}
+	table.data[key] = value
+	return nil
+}
+func (table *FileDict[K, V]) DropSync(key K) error {
+	if err := table.lockOrClosed(); err != nil {
+		return err
+	}
+	defer table.mutex.Unlock()
+	if _, err := table.file.Exec(`DELETE FROM data WHERE key = ?;`, key); err != nil {
+		return err
+	}
+	delete(table.data, key)
+	return nil
 }
 
 // load contents from file
@@ -148,14 +175,16 @@ func (table *FileDict[K, V]) lockOrClosed() error {
 	return nil
 }
 
-// permanent read-only state afterwards
+// flushes anything changed with Set/Drop, then permanent read-only state afterwards.
+// closes even if the flush fails, reporting both
 func (table *FileDict[K, V]) Close() error {
 	if err := table.lockOrClosed(); err != nil {
 		return err
 	}
 	defer table.mutex.Unlock()
+	errWrite := table.syncWriteLocked()
 	table.closed.Store(true)
-	return table.file.Close()
+	return errors.Join(errWrite, table.file.Close())
 }
 func (table *FileDict[K, V]) Get(key K) (value V, ok bool) {
 	table.mutex.RLock()
@@ -164,6 +193,8 @@ func (table *FileDict[K, V]) Get(key K) (value V, ok bool) {
 	value, ok = table.data[key]
 	return
 }
+
+// memory only; persisted by the next SyncWrite or Close. see SetSync
 func (table *FileDict[K, V]) Set(key K, value V) error {
 	if err := table.lockOrClosed(); err != nil {
 		return err
@@ -173,6 +204,8 @@ func (table *FileDict[K, V]) Set(key K, value V) error {
 	table.data[key] = value
 	return nil
 }
+
+// memory only; persisted by the next SyncWrite or Close. see DropSync
 func (table *FileDict[K, V]) Drop(key K) error {
 	if err := table.lockOrClosed(); err != nil {
 		return err

@@ -1,11 +1,14 @@
 package submit
 
 import (
+	"errors"
 	"fmt"
+	"krill-agg/root/info/run"
 	"krill-agg/root/krillion"
 	"krill-agg/root/managers/components"
 	"krill-agg/root/managers/scores"
 	"krill-agg/root/types"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,8 +20,14 @@ const (
 	updateGroup = "krill-update"
 	customYes   = updateGroup + "-yes"
 	customNo    = updateGroup + "-no"
-	customClose = updateGroup + "-close"
+	customClose = updateGroup + "-close" // the manager requires exactly this, so no suffix
 )
+
+// button IDs carry the run and the prompt's owner: "krill-update-yes:<run>:<uid>".
+// the run lets a click on a pre-restart prompt be recognized; discord caps these at 100 chars
+func customID(base string, userID string) string {
+	return fmt.Sprintf("%s:%s:%s", base, run.ID, userID)
+}
 
 // how long a user has to answer before the worker ignores the new score
 const PROMPT_TIMEOUT = 2 * time.Minute
@@ -30,6 +39,35 @@ func registerUpdateGroup(bcp *types.BotCommandPackage) {
 	bcp.Components.AddGroup(updateGroup, &components.GroupMetadata{
 		FromHandle: "stats",
 	})
+	bcp.Components.AddOrphanHandler(updateGroup+"-", previousRun)
+}
+
+// a prompt from before a restart: its state (and score) is gone, so the owner's
+// click closes it out; anyone else's click is swallowed. this run's prompts fall through
+func previousRun(s *discordgo.Session, i *discordgo.InteractionCreate) (bool, error) {
+	parts := strings.Split(i.MessageComponentData().CustomID, ":")
+	if len(parts) == 3 && parts[1] == run.ID {
+		return false, nil
+	}
+	if len(parts) == 3 && parts[2] != i.Member.User.ID {
+		return true, nil
+	}
+
+	content := "-# This prompt expired when the bot restarted."
+	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content:    &content,
+		Components: clearComponents(),
+	}); err != nil {
+		return true, err
+	}
+	// the prompt is a reply to the original submission
+	if ref := i.Message.MessageReference; ref != nil {
+		if err := s.MessageReactionRemove(ref.ChannelID, ref.MessageID, emojiConflict, "@me"); err != nil {
+			return true, err
+		}
+		return true, s.MessageReactionAdd(ref.ChannelID, ref.MessageID, emojiCanceled)
+	}
+	return true, nil
 }
 
 // userID -> *atomic.Uint64, bumped for each new prompt. only the prompt
@@ -64,12 +102,12 @@ func (state *promptState) expired(now time.Time) bool { return now.After(state.e
 // claims the prompt; false means someone else already resolved it
 func (state *promptState) resolve() bool { return state.resolved.CompareAndSwap(false, true) }
 
-func updateButtons() []discordgo.MessageComponent {
+func updateButtons(userID string) []discordgo.MessageComponent {
 	return []discordgo.MessageComponent{
 		discordgo.ActionsRow{
 			Components: []discordgo.MessageComponent{
-				discordgo.Button{Label: "Update", Style: discordgo.PrimaryButton, CustomID: customYes},
-				discordgo.Button{Label: "Cancel", Style: discordgo.SecondaryButton, CustomID: customNo},
+				discordgo.Button{Label: "Update", Style: discordgo.PrimaryButton, CustomID: customID(customYes, userID)},
+				discordgo.Button{Label: "Cancel", Style: discordgo.SecondaryButton, CustomID: customID(customNo, userID)},
 			},
 		},
 	}
@@ -83,7 +121,7 @@ func startUpdatePrompt(bcp *types.BotCommandPackage, s *discordgo.Session, m *di
 		Content:         content,
 		Reference:       m.Reference(),
 		AllowedMentions: noMentions,
-		Components:      updateButtons(),
+		Components:      updateButtons(m.Author.ID),
 	})
 	if err != nil {
 		return err
@@ -103,9 +141,9 @@ func startUpdatePrompt(bcp *types.BotCommandPackage, s *discordgo.Session, m *di
 	}
 
 	if err := bcp.Components.Register(updateGroup, components.NewComponentCallbacks(m.Author.ID, map[string]components.Callback{
-		customYes:   yesCallback(bcp, state),
-		customNo:    noCallback(state),
-		customClose: closeCallback(state),
+		customID(customYes, m.Author.ID): yesCallback(bcp, state),
+		customID(customNo, m.Author.ID):  noCallback(state),
+		customClose:                      closeCallback(state),
 	})); err != nil {
 		return err
 	}
@@ -154,7 +192,14 @@ func yesCallback(bcp *types.BotCommandPackage, state *promptState) components.Ca
 			return false, nil
 		}
 
-		bcp.Scores.Set(state.guildID, state.userID, *state.score)
+		if err := bcp.Scores.Set(state.guildID, state.userID, *state.score); err != nil {
+			content := "Couldn't save your score, try again later."
+			_, errEdit := state.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Content:    &content,
+				Components: clearComponents(),
+			})
+			return true, errors.Join(fmt.Errorf("saving krillion #%d: %v", state.score.Day, err), errEdit)
+		}
 
 		content := fmt.Sprintf("Updated day %d: %s", state.score.Day, state.score.Format())
 		if _, err := state.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{

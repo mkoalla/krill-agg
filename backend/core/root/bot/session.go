@@ -117,6 +117,15 @@ var dgInteractHandlers = map[discordgo.InteractionType]*autoAck{
 			bcp := instr.Commands
 			id := i.Member.User.ID
 
+			// leftovers (e.g. from a previous run) are claimed before normal routing
+			if handled, err := bcp.Components.TryOrphan(s, i); handled || err != nil {
+				msg = fmt.Sprintf("%v %02d  | -> orphan %s", id, bcp.Auth.GetRank(id), i.MessageComponentData().CustomID)
+				if err != nil {
+					runner = wrap(fmt.Errorf("while handling orphan Component %s: %v", i.MessageComponentData().CustomID, err))
+				}
+				return
+			}
+
 			group, ok := bcp.Components.GroupOf(id)
 			if !ok {
 				runner = wrap(errors.New("no group assigned to this interaction"))
@@ -274,7 +283,9 @@ func Start(instr StartInstructions) (session *Session, err error) {
 
 func EndSession(session *Session) {
 	session.Logger.Add("Ending session...", audit.LogGroup.BOT)
-	defer session.Package.Auth.Close() //nolint
+	defer session.Package.Auth.Close()     //nolint
+	defer session.Package.Scores.Close()   //nolint
+	defer session.Package.Tracking.Close() //nolint
 
 	defer func() {
 		if err := session.DGSession.Close(); err != nil {

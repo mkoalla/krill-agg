@@ -13,3 +13,19 @@ func FromMessage(content string) (PlayerScore, error) {
 	}
 	return p, nil
 }
+
+// rebuilds a stored result from its emoji string, recomputing the score
+func Rebuild(day int, emojis string) (PlayerScore, error) {
+	p := PlayerScore{Day: day}
+	for rest := emojis; rest != ""; {
+		var cluster string
+		cluster, rest = nextCluster(rest)
+		value := ValueOf(cluster)
+		if value == -1 {
+			return PlayerScore{}, &ValidationError{"unknown score type: " + cluster}
+		}
+		p.Choices = append(p.Choices, cluster)
+		p.Score += value
+	}
+	return p, Validate(p)
+}

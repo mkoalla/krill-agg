@@ -90,7 +90,11 @@ func show(s session, i intxn, bcp bcpackage, all bool) (string, bool, error) {
 
 func track(s session, i intxn, bcp bcpackage, all bool) (string, bool, error) {
 	if !all {
-		if bcp.Tracking.Track(i.GuildID, i.ChannelID) == 0 {
+		added, err := bcp.Tracking.Track(i.GuildID, i.ChannelID)
+		if err != nil {
+			return "", false, err
+		}
+		if added == 0 {
 			return fmt.Sprintf("<#%s> is already tracked.", i.ChannelID), false, nil
 		}
 		return fmt.Sprintf("Now tracking <#%s>.", i.ChannelID), false, nil
@@ -103,14 +107,26 @@ func track(s session, i intxn, bcp bcpackage, all bool) (string, bool, error) {
 	for j, c := range channels {
 		ids[j] = c.ID
 	}
-	return fmt.Sprintf("Now tracking %d more channel(s).", bcp.Tracking.Track(i.GuildID, ids...)), false, nil
+	added, err := bcp.Tracking.Track(i.GuildID, ids...)
+	if err != nil {
+		return "", false, err
+	}
+	return fmt.Sprintf("Now tracking %d more channel(s).", added), false, nil
 }
 
 func untrack(s session, i intxn, bcp bcpackage, all bool) (string, bool, error) {
 	if all {
-		return fmt.Sprintf("Stopped tracking %d channel(s).", bcp.Tracking.UntrackAll(i.GuildID)), false, nil
+		removed, err := bcp.Tracking.UntrackAll(i.GuildID)
+		if err != nil {
+			return "", false, err
+		}
+		return fmt.Sprintf("Stopped tracking %d channel(s).", removed), false, nil
 	}
-	if bcp.Tracking.Untrack(i.GuildID, i.ChannelID) == 0 {
+	removed, err := bcp.Tracking.Untrack(i.GuildID, i.ChannelID)
+	if err != nil {
+		return "", false, err
+	}
+	if removed == 0 {
 		return fmt.Sprintf("<#%s> wasn't tracked.", i.ChannelID), false, nil
 	}
 	return fmt.Sprintf("Stopped tracking <#%s>.", i.ChannelID), false, nil

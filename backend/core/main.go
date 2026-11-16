@@ -32,6 +32,8 @@ const (
 	DATA_PATH         = "./data/"
 	LOG_PATH          = DATA_PATH + "logs/"
 	DISCORD_AUTH_PATH = DATA_PATH + "discord_auth.db"
+	SCORES_PATH       = DATA_PATH + "scores.db"
+	TRACKING_PATH     = DATA_PATH + "tracking.db"
 )
 
 func setEnvironmentVars() (token string, mode string) {
@@ -60,6 +62,22 @@ func getManAuth() *authorize.AuthManager {
 	man, err := authorize.New(DISCORD_AUTH_PATH)
 	if err != nil {
 		logger.Panic(fmt.Sprintf("Couldn't init auth manager: %v", err), audit.LogGroup.INIT)
+		return nil
+	}
+	return man
+}
+func getManScores() *scores.ScoreManager {
+	man, err := scores.New(SCORES_PATH)
+	if err != nil {
+		logger.Panic(fmt.Sprintf("Couldn't init score manager: %v", err), audit.LogGroup.INIT)
+		return nil
+	}
+	return man
+}
+func getManTracking() *tracking.TrackingManager {
+	man, err := tracking.New(TRACKING_PATH)
+	if err != nil {
+		logger.Panic(fmt.Sprintf("Couldn't init tracking manager: %v", err), audit.LogGroup.INIT)
 		return nil
 	}
 	return man
@@ -113,8 +131,8 @@ func main() {
 	commands := commands.Register(commands.RegisterReqs{
 		Auth:       getManAuth(),
 		Components: components.New(),
-		Scores:     scores.New(),
-		Tracking:   tracking.New(),
+		Scores:     getManScores(),
+		Tracking:   getManTracking(),
 	})
 
 	session, err := bot.Start(bot.StartInstructions{

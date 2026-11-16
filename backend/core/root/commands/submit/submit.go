@@ -1,6 +1,7 @@
 package submit
 
 import (
+	"errors"
 	"fmt"
 	"krill-agg/root/managers/scores"
 	"krill-agg/root/types"
@@ -73,6 +74,9 @@ func Register(bcp *types.BotCommandPackage) {
 			return store(s, m, result)
 		case scores.Conflict:
 			return conflict(bcp, s, m, result)
+		case scores.Failed:
+			// a storage problem, not the user's fault; say so and log it
+			return "", errors.Join(fmt.Errorf("saving krillion #%d: %v", result.Score.Day, result.Err), reject(s, m, errors.New("couldn't save your score, try again later")))
 		default:
 			return "", nil
 		}

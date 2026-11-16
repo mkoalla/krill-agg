@@ -41,8 +41,9 @@ func (table *AuthManager) GetRank(id uid) Rank {
 	return userRank
 }
 
+// writes through to the file
 func (table *AuthManager) SetRank(id uid, rank Rank) error {
-	return table.data.Set(id, rank)
+	return table.data.SetSync(id, rank)
 }
 
 func (table *AuthManager) Write() error { return table.data.SyncWrite() }

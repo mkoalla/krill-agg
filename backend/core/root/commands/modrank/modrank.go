@@ -85,9 +85,6 @@ func Register(bcp *types.BotCommandPackage) {
 				if err := table.SetRank(target.ID, reqRank); err != nil {
 					return err
 				}
-				if err := table.Write(); err != nil {
-					return err
-				}
 				message = fmt.Sprintf("Set `%s`'s rank to %s", target.Username, reqRankStr)
 			}
 

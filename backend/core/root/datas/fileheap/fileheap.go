@@ -232,24 +232,17 @@ func (heap *FileHeap[K]) MergeLocked(value ...K) error {
 	heaps.Init(&heap.inner)
 
 	data := make([]any, 0, len(value)*2)
-	query := `REPLACE INTO data (hash, data) VALUES`
-	for i, val := range value {
+	for _, val := range value {
 		jsonData, err := json.Marshal(&val)
 		if err != nil {
 			return fmt.Errorf("while marshaling %v: %v", value, err)
 		}
 		hash := sha256.Sum256(jsonData)
 		data = append(data, hash[:], jsonData)
-		//
-		query += " (?, ?)"
-		if i != len(value)-1 {
-			query += ", "
-		} else {
-			query += ";"
-		}
 	}
-	_, err := heap.file.Exec(query, data...)
-	return err
+	return heap.file.Tx(func(tx *sqlite.Tx) error {
+		return tx.InsertRows("REPLACE INTO data (hash, data) VALUES", 2, data)
+	})
 }
 
 // Peek returns a copy of the top. The copy is deliberate: a pointer into the

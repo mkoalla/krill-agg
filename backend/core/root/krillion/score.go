@@ -44,7 +44,12 @@ func ValueOf(emoji string) int {
 	return v
 }
 
+// "🦑🦑🦑🐟🦑🦑🏮"
+func (p PlayerScore) Emojis() string {
+	return strings.Join(p.Choices, "")
+}
+
 // "415 🦑🦑🦑🐟🦑🦑🏮"
 func (p PlayerScore) Format() string {
-	return fmt.Sprintf("%d %s", p.Score, strings.Join(p.Choices, ""))
+	return fmt.Sprintf("%d %s", p.Score, p.Emojis())
 }

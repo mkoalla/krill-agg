@@ -18,16 +18,19 @@ var metadata = types.CommandMetadata{
 	MinTrustLevel: authorize.DEFAULT,
 }
 
-func description(bcp *types.BotCommandPackage, guild string, day int) string {
-	entries, ok := bcp.Scores.Day(guild, day)
-	if !ok {
-		return "No players yet!"
+func description(bcp *types.BotCommandPackage, guild string, day int) (string, error) {
+	entries, err := bcp.Scores.Day(guild, day)
+	if err != nil {
+		return "", err
+	}
+	if len(entries) == 0 {
+		return "No players yet!", nil
 	}
 	lines := make([]string, len(entries))
 	for i, e := range entries {
 		lines[i] = fmt.Sprintf("<@%s> - %s", e.UserID, e.Score.Format())
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n"), nil
 }
 
 // map is already reference-like but just for continuity
@@ -53,6 +56,10 @@ func Register(bcp *types.BotCommandPackage) {
 				optionMap[opt.Name] = opt
 			}
 			day := int(optionMap["day"].IntValue())
+			desc, err := description(bcp, i.GuildID, day)
+			if err != nil {
+				return err
+			}
 
 			return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -62,7 +69,7 @@ func Register(bcp *types.BotCommandPackage) {
 					Embeds: []*discordgo.MessageEmbed{
 						{
 							Title:       fmt.Sprintf("Krillion #%d 🦐", day),
-							Description: description(bcp, i.GuildID, day),
+							Description: desc,
 						},
 					},
 					AllowedMentions: &discordgo.MessageAllowedMentions{},
