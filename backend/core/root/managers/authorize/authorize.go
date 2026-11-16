@@ -2,7 +2,7 @@ package authorize
 
 import (
 	"iter"
-	fd "poll-bot/root/datas/filedict"
+	fd "krill-agg/root/datas/filedict"
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"

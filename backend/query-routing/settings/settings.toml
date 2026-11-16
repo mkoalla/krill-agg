@@ -1,8 +1,0 @@
-[ollama]
-name = "ollama"
-port = 11434
-
-[ollama.models]
-router = "smallthinker"
-simple = "smallthinker"
-complex = ""

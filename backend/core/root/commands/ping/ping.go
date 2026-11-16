@@ -1,9 +1,9 @@
 package ping
 
 import (
-	"poll-bot/root/info/unix"
-	"poll-bot/root/managers/authorize"
-	"poll-bot/root/types"
+	"krill-agg/root/info/unix"
+	"krill-agg/root/managers/authorize"
+	"krill-agg/root/types"
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"

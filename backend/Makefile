@@ -1,4 +1,4 @@
-.PHONY : init built up down logs dev update web
+.PHONY : init built up down logs dev update
 .DEFAULT_GOAL := build # -> just make
 
 build:

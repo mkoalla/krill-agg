@@ -3,11 +3,9 @@ package bot
 import (
 	"errors"
 	"fmt"
-	"poll-bot/root/managers/audit"
-	"poll-bot/root/managers/authorize"
-	"poll-bot/root/managers/polls"
-	"poll-bot/root/types"
-	"strconv"
+	"krill-agg/root/managers/audit"
+	"krill-agg/root/managers/authorize"
+	"krill-agg/root/types"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -85,7 +83,6 @@ var dgInteractHandlers = map[discordgo.InteractionType]*autoAck{
 			}
 			id := i.Member.User.ID
 
-			alias := bcp.Aliases.GetAlias(id)
 			cmd := rebuildCommand(&commandData)
 			var callback types.EventCallback
 			var statusChar string
@@ -102,7 +99,7 @@ var dgInteractHandlers = map[discordgo.InteractionType]*autoAck{
 				return
 			}
 
-			msg = fmt.Sprintf("%v %33s %02d %s| %s", id, alias, bcp.Auth.GetRank(id), statusChar, cmd)
+			msg = fmt.Sprintf("%v %02d %s| %s", id, bcp.Auth.GetRank(id), statusChar, cmd)
 			return
 		},
 	},
@@ -119,8 +116,6 @@ var dgInteractHandlers = map[discordgo.InteractionType]*autoAck{
 				return
 			}
 
-			alias := bcp.Aliases.GetAlias(id)
-
 			componentData := i.MessageComponentData()
 			var statusChar string
 			metadata, err := bcp.Components.GetMetadata(group)
@@ -134,7 +129,7 @@ var dgInteractHandlers = map[discordgo.InteractionType]*autoAck{
 			} else {
 				statusChar = "✅"
 			}
-			msg = fmt.Sprintf("%v %33s %02d %s| -> %s", id, alias, bcp.Auth.GetRank(id), statusChar, componentData.CustomID)
+			msg = fmt.Sprintf("%v %02d %s| -> %s", id, bcp.Auth.GetRank(id), statusChar, componentData.CustomID)
 			if !canUse {
 				return
 			}
@@ -160,8 +155,6 @@ var dgInteractHandlers = map[discordgo.InteractionType]*autoAck{
 				return
 			}
 
-			alias := bcp.Aliases.GetAlias(id)
-
 			componentData := i.ModalSubmitData()
 			var statusChar string
 			metadata, err := bcp.Components.GetMetadata(group)
@@ -174,7 +167,7 @@ var dgInteractHandlers = map[discordgo.InteractionType]*autoAck{
 			} else {
 				statusChar = "✅"
 			}
-			msg = fmt.Sprintf("%v %33s %02d %s| Modal-> %s", id, alias, bcp.Auth.GetRank(id), statusChar, componentData.CustomID)
+			msg = fmt.Sprintf("%v %02d %s| Modal-> %s", id, bcp.Auth.GetRank(id), statusChar, componentData.CustomID)
 			if !canUse {
 				return
 			}
@@ -190,19 +183,12 @@ var dgInteractHandlers = map[discordgo.InteractionType]*autoAck{
 }
 
 // 2. Initialize a new Discord
-// TODO aliases and auth are now in Commands. fix the type errors
 func Start(instr StartInstructions) (session *Session, err error) {
 
 	token, handles, logger := instr.Token, instr.Commands.Handles, instr.Logger
 	dgSession, err := discordgo.New("Bot " + token)
 	if err != nil {
 		return
-	}
-
-	//setup bcp/managers
-	instr.Commands.Polls.SetSession(dgSession)
-	for i := 0; i < polls.NUM_WORKERS; i++ {
-		instr.Commands.Polls.StartWorker(strconv.Itoa(i+1), instr.Logger)
 	}
 
 	logger.Add("Begin bot init", audit.LogGroup.BOT)
@@ -259,10 +245,7 @@ func Start(instr StartInstructions) (session *Session, err error) {
 
 func EndSession(session *Session) {
 	session.Logger.Add("Ending session...", audit.LogGroup.BOT)
-	session.Package.Polls.Close() //nolint
-
-	defer session.Package.Aliases.Close() //nolint
-	defer session.Package.Auth.Close()    //nolint
+	defer session.Package.Auth.Close() //nolint
 
 	defer func() {
 		if err := session.DGSession.Close(); err != nil {

@@ -3,8 +3,8 @@ package modrank
 import (
 	"errors"
 	"fmt"
-	"poll-bot/root/managers/authorize"
-	"poll-bot/root/types"
+	"krill-agg/root/managers/authorize"
+	"krill-agg/root/types"
 
 	"github.com/bwmarrin/discordgo"
 )

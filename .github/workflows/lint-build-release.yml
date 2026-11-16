@@ -7,8 +7,7 @@ on:
 
 env:
   TARGET_PLATFORM: linux-amd64
-  BIN_NAME: poll-bot-linux-amd64
-  # the go module lives here since the backend/frontend split
+  BIN_NAME: krill-agg-linux-amd64
   GO_DIR: backend/core
 
 jobs:
@@ -46,36 +45,13 @@ jobs:
         working-directory: ${{ env.GO_DIR }}
         run: go mod download
 
-      # the SPA is compiled into backend/core/root/api/web/dist and embedded by
-      # go:embed, so it has to exist before go build runs
-      - name: setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
-          run_install: false
-
-      - name: build frontend
-        working-directory: frontend
-        env:
-          WEB_ROOT_PATH: ${{ vars.WEB_ROOT_PATH }}
-          # vite resolves this relative to frontend/ (see vite.config.ts OUT_DIR)
-          OUTPUT_DIR: ../${{ env.GO_DIR }}/root/api/web/dist
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm run build
-
       - name: build
         working-directory: ${{ env.GO_DIR }}
         env:
           GOOS: linux
           CGO_ENABLED: 0
           GOARCH: amd64
-        run: go build -o main -ldflags "-X 'poll-bot/root/info/version.version=${{ github.ref_name }}' -X 'poll-bot/root/info/version.source=https://api.github.com/repos/mkoalla/poll-bot/releases'"
+        run: go build -o main -ldflags "-X 'krill-agg/root/info/version.version=${{ github.ref_name }}' -X 'krill-agg/root/info/version.source=https://api.github.com/repos/mkoalla/krill-agg/releases'"
 
       - name: compress
         run: tar -czvf ${{ env.BIN_NAME }}-${{ github.ref_name }}.tar.gz -C ${{ env.GO_DIR }} main

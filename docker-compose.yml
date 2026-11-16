@@ -1,18 +1,13 @@
 services:
   main:
     env_file: .env
-    
+
     build:
       context: ./backend
       no_cache: true
-    
-    # cloudflared connects to this from the host; bound to loopback so the
-    # port is not exposed on the LAN, only through the tunnel.
-    ports:
-      - "127.0.0.1:${SERVER_PORT}:${SERVER_PORT}"
 
     volumes:
       - ./data:/app/data/
 
     restart: unless-stopped
-    image: poll-bot:latest
+    image: krill-agg:latest

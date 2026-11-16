@@ -1,9 +1,9 @@
 package version
 
 import (
-	"poll-bot/root/info/version"
-	"poll-bot/root/managers/authorize"
-	"poll-bot/root/types"
+	"krill-agg/root/info/version"
+	"krill-agg/root/managers/authorize"
+	"krill-agg/root/types"
 
 	"github.com/bwmarrin/discordgo"
 )

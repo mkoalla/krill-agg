@@ -15,7 +15,7 @@ var (
 )
 
 func Format() string {
-	return fmt.Sprintf("Running Poll-Bot %s", version)
+	return fmt.Sprintf("Running krill-agg %s", version)
 }
 func Version() string {
 	return version
