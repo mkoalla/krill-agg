@@ -29,7 +29,7 @@ logs:
 
 # add env vars and overwrite MODE
 dev: init
-	ln -srf ./data ./backend/core/data
+	ln -srfn ./data ./backend/core/data
 	export $$(grep -v '^#' .env | xargs) && \
 		cd backend/core && \
 			go run -ldflags "-X 'krill-agg/root/info/version.version=dev' -X 'krill-agg/root/info/version.source=local'" .
