@@ -2,6 +2,7 @@ package top
 
 import (
 	"fmt"
+	"krill-agg/root/info/theme"
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/types"
 	"strings"
@@ -33,39 +34,58 @@ func blacklistArgs(i *discordgo.InteractionCreate) (sub string, user string) {
 	return sub, user
 }
 
-func blacklistReply(bcp *types.BotCommandPackage, i *discordgo.InteractionCreate) (string, error) {
+// add/remove answer in plain text; show answers with an embed, where the
+// mentions just show profiles
+func blacklistReply(bcp *types.BotCommandPackage, i *discordgo.InteractionCreate) (*discordgo.InteractionResponseData, error) {
+	content, embed, err := blacklistAnswer(bcp, i)
+	if err != nil {
+		return nil, err
+	}
+	data := &discordgo.InteractionResponseData{Content: content, AllowedMentions: &discordgo.MessageAllowedMentions{}}
+	if embed != nil {
+		data.Embeds = []*discordgo.MessageEmbed{embed}
+	}
+	return data, nil
+}
+
+func blacklistAnswer(bcp *types.BotCommandPackage, i *discordgo.InteractionCreate) (string, *discordgo.MessageEmbed, error) {
 	guild := i.GuildID
 	sub, user := blacklistArgs(i)
 	switch sub {
 	case "add", "remove":
 		changed, err := bcp.Leaderboard.SetBlacklisted(guild, user, sub == "add")
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		switch {
 		case sub == "add" && changed:
-			return fmt.Sprintf("<@%s> is now left off this server's leaderboards.", user), nil
+			return fmt.Sprintf("<@%s> is now left off this server's leaderboards.", user), nil, nil
 		case sub == "add":
-			return fmt.Sprintf("<@%s> is already blacklisted.", user), nil
+			return fmt.Sprintf("<@%s> is already blacklisted.", user), nil, nil
 		case changed:
-			return fmt.Sprintf("<@%s> is back on this server's leaderboards.", user), nil
+			return fmt.Sprintf("<@%s> is back on this server's leaderboards.", user), nil, nil
 		default:
-			return fmt.Sprintf("<@%s> wasn't blacklisted.", user), nil
+			return fmt.Sprintf("<@%s> wasn't blacklisted.", user), nil, nil
 		}
 	default:
 		ids, err := bcp.Leaderboard.Blacklist(guild)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
-		if len(ids) == 0 {
-			return "Nobody is blacklisted.", nil
-		}
+		return "", blacklistEmbed(ids), nil
+	}
+}
+
+func blacklistEmbed(ids []string) *discordgo.MessageEmbed {
+	body := "Nobody is blacklisted."
+	if len(ids) > 0 {
 		lines := make([]string, len(ids))
 		for j, id := range ids {
 			lines[j] = fmt.Sprintf("<@%s>", id)
 		}
-		return "**Left off the leaderboards:**\n" + strings.Join(lines, "\n"), nil
+		body = strings.Join(lines, "\n")
 	}
+	return &discordgo.MessageEmbed{Title: "Left off the leaderboards", Description: body, Color: theme.ACCENT}
 }
 
 func registerBlacklist(bcp *types.BotCommandPackage) {
@@ -83,16 +103,13 @@ func registerBlacklist(bcp *types.BotCommandPackage) {
 		},
 		Metadata: types.CommandMetadata{MinTrustLevel: authorize.MANAGE},
 		Callback: func(s *discordgo.Session, i *discordgo.InteractionCreate) error {
-			content, err := blacklistReply(bcp, i)
+			data, err := blacklistReply(bcp, i)
 			if err != nil {
 				return err
 			}
 			return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content:         content,
-					AllowedMentions: &discordgo.MessageAllowedMentions{},
-				},
+				Data: data,
 			})
 		},
 	}

@@ -73,3 +73,12 @@ func TestSelfLine(t *testing.T) {
 }
 
 var fixedNow = time.Date(2026, 11, 16, 15, 10, 0, 0, time.UTC)
+
+func TestBlacklistEmbed(t *testing.T) {
+	if e := blacklistEmbed(nil); e.Description != "Nobody is blacklisted." {
+		t.Errorf("empty = %q", e.Description)
+	}
+	if e := blacklistEmbed([]string{"1", "2"}); e.Description != "<@1>\n<@2>" || e.Title == "" {
+		t.Errorf("list = %+v", e)
+	}
+}
