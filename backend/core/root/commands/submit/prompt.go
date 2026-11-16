@@ -39,7 +39,7 @@ func registerUpdateGroup(bcp *types.BotCommandPackage) {
 	bcp.Components.AddGroup(updateGroup, &components.GroupMetadata{
 		FromHandle: "stats",
 	})
-	bcp.Components.AddOrphanHandler(updateGroup+"-", previousRun)
+	bcp.Components.AddPrefixHandler(updateGroup+"-", previousRun)
 }
 
 // a prompt from before a restart: its state (and score) is gone, so the owner's

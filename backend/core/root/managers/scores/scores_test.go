@@ -72,3 +72,23 @@ func TestIngestFlow(t *testing.T) {
 		t.Fatalf("Get(2, 123, 10) = %+v %v %v", p, ok, err)
 	}
 }
+
+// backfill's bulk write overwrites existing entries and adds new ones atomically
+func TestSetMany(t *testing.T) {
+	man := open(t, filepath.Join(t.TempDir(), "scores.db"))
+	defer man.Close() //nolint
+	if r := man.Ingest("1", "10", day123); r.Outcome != Stored {
+		t.Fatalf("seed outcome = %v", r.Outcome)
+	}
+	older := man.Ingest("9", "10", alt123).Score // parsed, stored elsewhere; reuse the struct
+	newer := man.Ingest("9", "20", day124).Score
+	if err := man.SetMany("1", []Entry{{UserID: "10", Score: older}, {UserID: "20", Score: newer}}); err != nil {
+		t.Fatalf("SetMany() error = %v", err)
+	}
+	if p, _, _ := man.Get("1", 123, "10"); p.Score != 310 {
+		t.Errorf("user 10 day 123 = %d, want 310 (overwritten)", p.Score)
+	}
+	if p, ok, _ := man.Get("1", 124, "20"); !ok || p.Score != 415 {
+		t.Errorf("user 20 day 124 = %d %v, want 415", p.Score, ok)
+	}
+}

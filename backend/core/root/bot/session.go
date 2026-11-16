@@ -117,11 +117,11 @@ var dgInteractHandlers = map[discordgo.InteractionType]*autoAck{
 			bcp := instr.Commands
 			id := i.Member.User.ID
 
-			// leftovers (e.g. from a previous run) are claimed before normal routing
-			if handled, err := bcp.Components.TryOrphan(s, i); handled || err != nil {
-				msg = fmt.Sprintf("%v %02d  | -> orphan %s", id, bcp.Auth.GetRank(id), i.MessageComponentData().CustomID)
+			// prefix handlers (rank-gated or leftover buttons) get first look
+			if handled, err := bcp.Components.TryPrefix(s, i); handled || err != nil {
+				msg = fmt.Sprintf("%v %02d  | -> prefix %s", id, bcp.Auth.GetRank(id), i.MessageComponentData().CustomID)
 				if err != nil {
-					runner = wrap(fmt.Errorf("while handling orphan Component %s: %v", i.MessageComponentData().CustomID, err))
+					runner = wrap(fmt.Errorf("while handling prefix Component %s: %v", i.MessageComponentData().CustomID, err))
 				}
 				return
 			}
@@ -165,6 +165,15 @@ var dgInteractHandlers = map[discordgo.InteractionType]*autoAck{
 			runner = noOp
 			id := i.Member.User.ID
 			bcp := instr.Commands
+
+			if handled, err := bcp.Components.TryPrefix(s, i); handled || err != nil {
+				msg = fmt.Sprintf("%v %02d  | Modal-> prefix %s", id, bcp.Auth.GetRank(id), i.ModalSubmitData().CustomID)
+				if err != nil {
+					runner = wrap(fmt.Errorf("while handling prefix Modal %s: %v", i.ModalSubmitData().CustomID, err))
+				}
+				return
+			}
+
 			group, ok := bcp.Components.GroupOf(id)
 			if !ok {
 				runner = wrap(errors.New("no group assigned to this interaction"))

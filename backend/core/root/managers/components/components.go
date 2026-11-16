@@ -32,7 +32,7 @@ type ComponentCallbackManager struct {
 	//
 	rules map[grouping]GroupMetadata
 	//
-	orphans map[string]OrphanCallback
+	prefixes map[string]PrefixCallback
 }
 
 func New() *ComponentCallbackManager {
@@ -41,7 +41,7 @@ func New() *ComponentCallbackManager {
 		data:         make(map[grouping]map[snowflake]*ComponentCallbacks),
 		inverse:      make(map[snowflake]grouping),
 		rules:        make(map[grouping]GroupMetadata),
-		orphans:      make(map[string]OrphanCallback),
+		prefixes:     make(map[string]PrefixCallback),
 	}
 }
 

@@ -1,10 +1,14 @@
 package commands
 
 import (
+	"krill-agg/root/commands/backfill"
 	"krill-agg/root/commands/channels"
+	"krill-agg/root/commands/daily"
+	"krill-agg/root/commands/day"
 	"krill-agg/root/commands/modrank"
 	"krill-agg/root/commands/ping"
 	"krill-agg/root/commands/rank"
+	"krill-agg/root/commands/score"
 	"krill-agg/root/commands/stats"
 	"krill-agg/root/commands/submit"
 	"krill-agg/root/commands/version"
@@ -26,10 +30,14 @@ type RegisterReqs struct {
 }
 
 var registers = []func(*types.BotCommandPackage){
+	backfill.Register,
 	channels.Register,
+	daily.Register,
+	day.Register,
 	modrank.Register,
 	ping.Register,
 	rank.Register,
+	score.Register,
 	stats.Register,
 	submit.Register,
 	version.Register,

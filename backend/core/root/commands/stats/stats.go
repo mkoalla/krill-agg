@@ -2,35 +2,67 @@ package stats
 
 import (
 	"fmt"
+	"krill-agg/root/krillion"
 	"krill-agg/root/managers/authorize"
+	"krill-agg/root/managers/scores"
 	"krill-agg/root/types"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/rivo/uniseg"
 )
 
 type CommandInfo = types.CommandInfo
 type EventCallback = types.EventCallback
 
-const FOOTER = "-# Percentiles and playcounts at daily reset!"
+const (
+	// %d is the next reset; discord renders the stamp as "in 5 hours"
+	FOOTER = "-# Percentiles and playcounts at daily reset <t:%d:R>!"
+	// krillion only ranks today's puzzle, so anything older has no percentiles
+	PAST_NOTE = "-# Percentiles are only available for today's puzzle."
+)
+
+// the line under a board: what's coming for today, why there's nothing for older days
+func Footer(day int) string {
+	today := krillion.Today()
+	if day < today {
+		return PAST_NOTE
+	}
+	return fmt.Sprintf(FOOTER, krillion.StartOf(today+1).Unix())
+}
 
 var metadata = types.CommandMetadata{
 	MinTrustLevel: authorize.DEFAULT,
 }
 
-func description(bcp *types.BotCommandPackage, guild string, day int) (string, error) {
-	entries, err := bcp.Scores.Day(guild, day)
-	if err != nil {
-		return "", err
+// "`🦑🦑🦑🐟🦑🦑🏮` - `415` - <@uid>". the code spans force monospace so the
+// columns line up; the mention stays outside so it still renders
+func line(uid string, p krillion.PlayerScore) string {
+	return fmt.Sprintf("`%s` - `%3d` - <@%s>", padGraphemes(p.Emojis(), krillion.NumChoices), p.Score, uid)
+}
+
+// left-aligns to n characters as people see them; fmt's %-7s counts runes,
+// and one emoji can be several
+func padGraphemes(s string, n int) string {
+	if pad := n - uniseg.GraphemeClusterCount(s); pad > 0 {
+		return s + strings.Repeat(" ", pad)
 	}
-	if len(entries) == 0 {
-		return "No players yet!", nil
+	return s
+}
+
+const NO_PLAYERS = "No players yet!"
+
+// the day's scoreboard; entries come sorted from scores.Day. shared with /forcedaily
+func Board(day int, entries []scores.Entry) *discordgo.MessageEmbed {
+	desc := NO_PLAYERS
+	if len(entries) > 0 {
+		lines := make([]string, len(entries))
+		for i, e := range entries {
+			lines[i] = line(e.UserID, e.Score)
+		}
+		desc = strings.Join(lines, "\n")
 	}
-	lines := make([]string, len(entries))
-	for i, e := range entries {
-		lines[i] = fmt.Sprintf("<@%s> - %s", e.UserID, e.Score.Format())
-	}
-	return strings.Join(lines, "\n"), nil
+	return &discordgo.MessageEmbed{Title: krillion.Header(day), Description: desc}
 }
 
 // map is already reference-like but just for continuity
@@ -43,8 +75,7 @@ func Register(bcp *types.BotCommandPackage) {
 				{
 					Type:        discordgo.ApplicationCommandOptionInteger,
 					Name:        "day",
-					Description: "krillion #",
-					Required:    true,
+					Description: "krillion # (default: today)",
 				},
 			},
 		},
@@ -55,8 +86,11 @@ func Register(bcp *types.BotCommandPackage) {
 			for _, opt := range options {
 				optionMap[opt.Name] = opt
 			}
-			day := int(optionMap["day"].IntValue())
-			desc, err := description(bcp, i.GuildID, day)
+			day := krillion.Today()
+			if opt, ok := optionMap["day"]; ok {
+				day = int(opt.IntValue())
+			}
+			entries, err := bcp.Scores.Day(i.GuildID, day)
 			if err != nil {
 				return err
 			}
@@ -65,13 +99,8 @@ func Register(bcp *types.BotCommandPackage) {
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
 					// discord always renders content above embeds
-					Content: FOOTER,
-					Embeds: []*discordgo.MessageEmbed{
-						{
-							Title:       fmt.Sprintf("Krillion #%d 🦐", day),
-							Description: desc,
-						},
-					},
+					Content:         Footer(day),
+					Embeds:          []*discordgo.MessageEmbed{Board(day, entries)},
 					AllowedMentions: &discordgo.MessageAllowedMentions{},
 				},
 			})

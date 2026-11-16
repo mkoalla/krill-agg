@@ -88,6 +88,15 @@ func (man *ScoreManager) Set(guild guildID, id uid, p PlayerScore) error {
 	return man.db.Upsert(toRow(guild, id, p))
 }
 
+// overwrites many entries at once, all-or-nothing (used by backfill)
+func (man *ScoreManager) SetMany(guild guildID, entries []Entry) error {
+	rows := make([]scoredb.Row, len(entries))
+	for i, e := range entries {
+		rows[i] = toRow(guild, e.UserID, e.Score)
+	}
+	return man.db.UpsertMany(rows)
+}
+
 func (man *ScoreManager) Get(guild guildID, day int, id uid) (PlayerScore, bool, error) {
 	row, ok, err := man.db.Get(guild, id, day)
 	if err != nil || !ok {

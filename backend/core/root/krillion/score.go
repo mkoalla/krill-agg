@@ -49,6 +49,16 @@ func (p PlayerScore) Emojis() string {
 	return strings.Join(p.Choices, "")
 }
 
+// "Krillion #124 🦐"
+func Header(day int) string {
+	return fmt.Sprintf("Krillion #%d 🦐", day)
+}
+
+// the result laid out like the game's own share text
+func (p PlayerScore) Message() string {
+	return fmt.Sprintf("%s\n%d\n\n%s", Header(p.Day), p.Score, p.Emojis())
+}
+
 // "415 🦑🦑🦑🐟🦑🦑🏮"
 func (p PlayerScore) Format() string {
 	return fmt.Sprintf("%d %s", p.Score, p.Emojis())

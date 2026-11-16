@@ -41,6 +41,11 @@ func (tx *Tx) Exec(query string, args ...any) (sql.Result, error) {
 // args is width values per row, flattened. split into as few statements as the
 // parameter cap allows; run inside a Tx so the batch stays all-or-nothing
 func (tx *Tx) InsertRows(head string, width int, args []any) error {
+	return tx.InsertRowsWith(head, "", width, args)
+}
+
+// InsertRows with a tail after the rows, e.g. an ON CONFLICT clause
+func (tx *Tx) InsertRowsWith(head string, tail string, width int, args []any) error {
 	if width <= 0 || len(args)%width != 0 {
 		return errors.New("InsertRows: args aren't a whole number of rows")
 	}
@@ -49,7 +54,7 @@ func (tx *Tx) InsertRows(head string, width int, args []any) error {
 	for start := 0; start < len(args); start += perStatement {
 		chunk := args[start:min(start+perStatement, len(args))]
 		rows := strings.TrimSuffix(strings.Repeat(row+", ", len(chunk)/width), ", ")
-		if _, err := tx.Exec(head+" "+rows+";", chunk...); err != nil {
+		if _, err := tx.Exec(head+" "+rows+" "+tail+";", chunk...); err != nil {
 			return err
 		}
 	}

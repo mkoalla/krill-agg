@@ -62,6 +62,18 @@ func (db *ScoreDB) Upsert(r Row) error {
 	return err
 }
 
+// inserts or overwrites many rows in one transaction
+func (db *ScoreDB) UpsertMany(rows []Row) error {
+	args := make([]any, 0, len(rows)*4)
+	for _, r := range rows {
+		args = append(args, r.GuildID, r.UserID, r.Day, r.Emojis)
+	}
+	return db.file.Tx(func(tx *sqlite.Tx) error {
+		return tx.InsertRowsWith(`INSERT INTO scores (guild_id, user_id, day, emojis) VALUES`,
+			`ON CONFLICT (guild_id, user_id, day) DO UPDATE SET emojis = excluded.emojis`, 4, args)
+	})
+}
+
 func (db *ScoreDB) Get(guild string, user string, day int) (row Row, ok bool, err error) {
 	iter, err := db.file.Query(`SELECT emojis FROM scores WHERE guild_id = ? AND user_id = ? AND day = ?;`, guild, user, day)
 	if err != nil {
