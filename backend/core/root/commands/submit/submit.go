@@ -15,6 +15,7 @@ const (
 	emojiRejected = "❌"
 	emojiStored   = "✅"
 	emojiConflict = "⚠️"
+	emojiCanceled = "✋"
 )
 
 // never ping anyone from a bot-generated reply
@@ -55,6 +56,7 @@ func conflict(bcp *types.BotCommandPackage, s *discordgo.Session, m *discordgo.M
 // map is already reference-like but just for continuity
 func Register(bcp *types.BotCommandPackage) {
 	registerUpdateGroup(bcp)
+	startExpiryWorker()
 
 	*bcp.MessageHandlers = append(*bcp.MessageHandlers, func(s *discordgo.Session, m *discordgo.MessageCreate) (logMsg string, err error) {
 		// only read submissions in guild channels picked with /track
