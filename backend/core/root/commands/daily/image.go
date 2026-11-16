@@ -171,6 +171,8 @@ func GenerateImage(s *discordgo.Session, bcp *types.BotCommandPackage, snap *Sna
 		Mean:       mean,
 		Dist:       snap.Dist.Dist,
 		Percentile: snap.Dist.Percentile(mean),
+		Sample:     snap.Dist.Sample,
+		MaxPush:    dailygen.MAX_PUSH,
 		Users:      users,
 	})
 	if err != nil {

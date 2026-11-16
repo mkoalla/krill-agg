@@ -2,7 +2,7 @@
 the png landed under the shared data dir.
 
 POST /render {"guild", "title", "day", "mean", "dist", "percentile"?,
-              "users"?: [{"score"}], "user_size"?, "max_push"?, "icon"?}
+              "users"?: [{"score"}], "user_size"?, "max_push"?, "icon"?, "sample"?}
   -> 200 {"path": "<guild>/daily_<day>.png"}   (relative to the daily dir)
   -> 400/500 {"error": "..."}
 Avatars are implicit: users[i] uses <guild>/images/<i>.png when it exists.
@@ -47,7 +47,8 @@ def build(body: dict, data_dir: Path) -> tuple[CardData, Path]:
         percentile = None if body.get("percentile") is None else float(body["percentile"])
         users = [float(u["score"]) for u in body.get("users", [])]
         user_size = float(body.get("user_size", 28))
-        max_push = int(body.get("max_push", 3))
+        max_push = int(body.get("max_push", 4))
+        sample = None if body.get("sample") is None else int(body["sample"])
     except (KeyError, TypeError, ValueError) as err:
         raise BadRequest(f"bad field: {err}") from None
     icon = str(body.get("icon") or "")
@@ -68,6 +69,7 @@ def build(body: dict, data_dir: Path) -> tuple[CardData, Path]:
         user_size=user_size,
         max_push=max_push,
         icon=str(images / icon) if icon else None,
+        sample=sample,
     )
     return data, data_dir / guild / f"daily_{day}.png"
 

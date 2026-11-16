@@ -24,7 +24,7 @@ func TestPercentileLine(t *testing.T) {
 }
 
 func TestHeading(t *testing.T) {
-	if got := Heading(124); got != "# Krillion Daily #124 🦐" {
+	if got := Heading(124); got != "# Krillion Daily Results #124 🦐" {
 		t.Errorf("Heading() = %q", got)
 	}
 }

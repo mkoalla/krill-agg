@@ -56,7 +56,7 @@ def test_render_writes_png_and_returns_path(server):
 
 
 @pytest.mark.parametrize("bad", [
-    {"guild": "../etc"}, {"guild": ""}, {"icon": "../0.png"}, {"icon": ".hidden"}, {"dist": []}, {"day": "x"}, {"users": [{"nope": 1}]},
+    {"guild": "../etc"}, {"guild": ""}, {"icon": "../0.png"}, {"icon": ".hidden"}, {"dist": []}, {"day": "x"}, {"users": [{"nope": 1}]}, {"sample": "x"},
 ])
 def test_bad_requests(server, bad):
     url, data = server
@@ -83,3 +83,13 @@ def test_icon_is_drawn_when_present(tmp_path):
         svg_string='<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="red"/></svg>')))
     assert 'clip-path="url(#icon)"' in render_svg(data)
     assert isinstance(data, CardData)
+
+
+def test_sample_is_drawn_with_commas(tmp_path):
+    from dailygen.card import render_svg
+    from dailygen.server import build
+
+    data, _ = build(body(sample=3245071), tmp_path)
+    assert "3,245,071 TOTAL" in render_svg(data)
+    data, _ = build(body(), tmp_path)
+    assert "TOTAL" not in render_svg(data)

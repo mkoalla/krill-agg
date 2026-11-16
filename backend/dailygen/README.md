@@ -30,7 +30,7 @@ before wrapping back down; the card grows to fit the tallest stack.
 ```sh
 uv run python -m dailygen --title "The Krill Club" --score 371 --out card.png \
   --user "415:avatars/alice.png" --user "420:" --user "300:missing.png" \
-  --user-size 28 --max-push 3
+  --user-size 28 --max-push 4
 ```
 
 In `--json`, players are `"users": [{"score": 415, "avatar": "avatars/alice.png"}]`.
@@ -47,12 +47,13 @@ uv run python -m dailygen.server --data-dir ../../data/daily
 ```
 
 `POST /render` with `{"guild", "title", "day", "mean", "dist", "percentile"?,
-"users": [{"score"}], "user_size"?, "max_push"?, "icon"?}` writes
+"users": [{"score"}], "user_size"?, "max_push"?, "icon"?, "sample"?}` writes
 `<data-dir>/<guild>/daily_<day>.png` (overwriting; `data/daily/` on the shared mount) and answers
 `200 {"path": "<guild>/daily_<day>.png"}`, or `400`/`500` with `{"error"}`.
 Avatars are implicit: `users[i]` is drawn from `<guild>/images/<i>.png`, which
 the bot downloads beforehand; a missing file is a grey disc. `icon` is a bare
-file name in that same folder (the bot sends `guild.png`). `GET /health` is 200.
+file name in that same folder (the bot sends `guild.png`). `sample` (krillion's
+player count) is drawn right-aligned on the footer line as "3,245,071 TOTAL". `GET /health` is 200.
 
 In compose this runs as `dailygen` on the `krill-agg` network, sharing the
 `data/` mount with the bot, which reaches it at `http://dailygen:40404`.

@@ -34,7 +34,13 @@ type Request struct {
 	Percentile float64   `json:"percentile"`
 	Users      []User    `json:"users"`
 	Icon       string    `json:"icon,omitempty"`
+	Sample     int       `json:"sample"` // krillion's player count today
+	// avatars a clashing stack grows before wrapping back down (modulo)
+	MaxPush int `json:"max_push"`
 }
+
+// how high clashing avatars stack before wrapping
+const MAX_PUSH = 4
 
 type response struct {
 	Path  string `json:"path"`

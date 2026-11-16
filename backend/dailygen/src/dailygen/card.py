@@ -50,7 +50,9 @@ TITLE_TOP = PAD  # title and dive label share this top edge
 SCORE_TOP = 58  # score and "GUILD AVERAGE" share this top edge
 SCORE_BASELINE = SCORE_TOP + CAP_EM * SCORE_SIZE  # ...and score and depth this baseline
 SCORE_GAP = 14  # between the score and its labels
-CHART_SCALE = (CARD_W - 2 * PAD) / curve.WIDTH  # the 320-wide chart stretched edge to edge
+CHART_SCALE = (
+    CARD_W - 2 * PAD
+) / curve.WIDTH  # the 320-wide chart stretched edge to edge
 BASE_CHART_TOP = 130
 BASE_FOOT_BASELINE = 334
 CLEARANCE = SCORE_BASELINE + 8  # nothing floats higher than this
@@ -71,8 +73,9 @@ class CardData:
     population: str = "today's players"
     players: list[Player] = field(default_factory=list)
     user_size: float = 28  # avatar diameter
-    max_push: int = 3  # most avatars a stack grows before wrapping down
+    max_push: int = 4  # most avatars a stack grows before wrapping down
     icon: str | None = None  # guild icon path; missing/unreadable means none drawn
+    sample: int | None = None  # krillion's player count today; drawn when known
 
     def better_than(self) -> float:
         if self.percentile is not None:
@@ -113,7 +116,9 @@ def chart_svg(data: CardData, pts: list[curve.Point]) -> str:
     ticks = []
     for value in (100, 200, 300, 400, 500, 600):
         x = value / curve.MAX_DAY_SCORE * curve.WIDTH
-        ticks.append(f'<line x1="{x:.3f}" y1="{base}" x2="{x:.3f}" y2="81.5" stroke="{DRIFT}" stroke-opacity="0.5"/>')
+        ticks.append(
+            f'<line x1="{x:.3f}" y1="{base}" x2="{x:.3f}" y2="81.5" stroke="{DRIFT}" stroke-opacity="0.5"/>'
+        )
         if abs(x - m) >= 18:  # keep clear of the marker label
             ticks.append(
                 f'<text x="{x:.3f}" y="90" text-anchor="middle" font-size="9" fill="{DRIFT}" opacity="0.55">{value}</text>'
@@ -123,7 +128,9 @@ def chart_svg(data: CardData, pts: list[curve.Point]) -> str:
     # extremes; drop one the same way ticks give way
     ends = ""
     if label_x >= 18:
-        ends += f'<text x="0" y="90" font-size="9" fill="{DRIFT}" opacity="0.6">0</text>'
+        ends += (
+            f'<text x="0" y="90" font-size="9" fill="{DRIFT}" opacity="0.6">0</text>'
+        )
     if curve.WIDTH - label_x >= 18:
         ends += f'<text x="{curve.WIDTH}" y="90" text-anchor="end" font-size="9" fill="{DRIFT}" opacity="0.6">{curve.MAX_DAY_SCORE}</text>'
 
@@ -183,7 +190,11 @@ def layout(data: CardData, pts: list[curve.Point]) -> Layout:
 
     rel = []  # positions relative to the chart's top
     for j, x, level in zip(order, xs, levels):
-        curve_y = curve.marker_y(pts, curve.score_x(data.players[j].score)) * CHART_SCALE if pts else 0
+        curve_y = (
+            curve.marker_y(pts, curve.score_x(data.players[j].score)) * CHART_SCALE
+            if pts
+            else 0
+        )
         cy = curve_y - PIN_LEN - r - level * (data.user_size + LEVEL_GAP)
         rel.append((j, x, curve_y, cy))
 
@@ -200,7 +211,12 @@ def layout(data: CardData, pts: list[curve.Point]) -> Layout:
         )
         for j, x, curve_y, cy in rel
     ]
-    return Layout(chart_top=top, card_h=BASE_CARD_H + shift, foot_baseline=BASE_FOOT_BASELINE + shift, players=placed)
+    return Layout(
+        chart_top=top,
+        card_h=BASE_CARD_H + shift,
+        foot_baseline=BASE_FOOT_BASELINE + shift,
+        players=placed,
+    )
 
 
 def players_svg(data: CardData, placed: list[Placed]) -> str:
@@ -220,8 +236,12 @@ def players_svg(data: CardData, placed: list[Placed]) -> str:
                 f'preserveAspectRatio="xMidYMid slice" clip-path="url(#av{k})"/>'
             )
         else:
-            discs.append(f'<circle cx="{p.cx:.2f}" cy="{p.cy:.2f}" r="{r:.2f}" fill="{BLANK}"/>')
-        discs.append(f'<circle cx="{p.cx:.2f}" cy="{p.cy:.2f}" r="{r:.2f}" fill="none" stroke="{RING}" stroke-width="2"/>')
+            discs.append(
+                f'<circle cx="{p.cx:.2f}" cy="{p.cy:.2f}" r="{r:.2f}" fill="{BLANK}"/>'
+            )
+        discs.append(
+            f'<circle cx="{p.cx:.2f}" cy="{p.cy:.2f}" r="{r:.2f}" fill="none" stroke="{RING}" stroke-width="2"/>'
+        )
     return "\n  ".join(pins + discs)
 
 
@@ -233,7 +253,9 @@ def icon_svg(data: CardData) -> str:
         return ""
     x, y, size = CARD_W - PAD - ICON_SIZE, ICON_TOP, ICON_SIZE
     rx = size * ICON_ROUND
-    box = f'x="{x:.2f}" y="{y:.2f}" width="{size:.2f}" height="{size:.2f}" rx="{rx:.2f}"'
+    box = (
+        f'x="{x:.2f}" y="{y:.2f}" width="{size:.2f}" height="{size:.2f}" rx="{rx:.2f}"'
+    )
     return (
         f'<clipPath id="icon"><rect {box}/></clipPath>'
         f'<image href="{uri}" x="{x:.2f}" y="{y:.2f}" width="{size:.2f}" height="{size:.2f}" '
@@ -251,6 +273,7 @@ def render_svg(data: CardData) -> str:
     beside_score = PAD + _width(str(score), SCORE_SIZE) + SCORE_GAP
     label_spacing = _spacing(LABEL_SIZE, LABEL_SPACING_EM)
     better = f"BETTER THAN {curve.format_percentile(data.better_than())}% OF {data.population.upper()}"
+    total = "" if data.sample is None else f"{data.sample:,} TOTAL"
     pts = curve.points(curve.smooth(data.dist))
     lay = layout(data, pts)
     chart = f"translate({PAD} {lay.chart_top:.2f}) scale({CHART_SCALE:.5f})"
@@ -286,6 +309,7 @@ def render_svg(data: CardData) -> str:
   </g>
 
   <text x="{PAD}" y="{lay.foot_baseline:.2f}" font-size="{LABEL_SIZE}" letter-spacing="{label_spacing}" fill="{CYAN}" filter="url(#shadow)">{escape(better)}</text>
+  <text x="{CARD_W - PAD}" y="{lay.foot_baseline:.2f}" text-anchor="end" font-size="{LABEL_SIZE}" letter-spacing="{label_spacing}" fill="{CYAN}" filter="url(#shadow)">{total}</text>
 </svg>
 """
 

@@ -4,7 +4,7 @@
 Without --json the card uses placeholder numbers from krillion's api: --score is
 sent as the "guild mean" and the returned distribution and betterThan are used.
 --json renders given data offline: {"day", "mean", "dist", "title"?, "percentile"?,
-"users"?: [{"score", "avatar"?}], "icon"?}. --user adds players either way.
+"users"?: [{"score", "avatar"?}], "icon"?, "sample"?}. --user adds players either way.
 """
 
 import argparse
@@ -29,7 +29,7 @@ def main() -> int:
         help="a player pin; repeatable. AVATAR may be empty or invalid for a blank disc",
     )
     parser.add_argument("--user-size", type=float, default=28, help="avatar diameter in px (square crop)")
-    parser.add_argument("--max-push", type=int, default=3, help="avatars a clashing stack grows before wrapping down")
+    parser.add_argument("--max-push", type=int, default=4, help="avatars a clashing stack grows before wrapping down")
     parser.add_argument("--icon", help="guild icon image, right-aligned under the dive label")
     args = parser.parse_args()
     try:
@@ -47,12 +47,14 @@ def main() -> int:
             dist=raw["dist"],
             percentile=raw.get("percentile"),
             icon=raw.get("icon"),
+            sample=raw.get("sample"),
         )
         players += [Player(score=u["score"], avatar=u.get("avatar")) for u in raw.get("users", [])]
     else:
         day = args.day or api.today()
         stats = api.complete(api.date_of(day), args.score)
-        data = CardData(title=args.title, day=day, mean=args.score, dist=stats.dist, percentile=stats.better_than)
+        data = CardData(title=args.title, day=day, mean=args.score, dist=stats.dist, percentile=stats.better_than,
+                        sample=stats.sample)
 
     data.players = players
     data.user_size = args.user_size
