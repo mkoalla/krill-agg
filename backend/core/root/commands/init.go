@@ -66,7 +66,10 @@ func Register(reqs RegisterReqs) *types.BotCommandPackage {
 	}
 
 	// flips reach the pages manager through the components' prefix routing
-	bcp.Pages.Register(bcp.Components.AddPrefixHandler)
+	bcp.Pages.Register(bcp.Components.AddPrefixHandler, func(user, command string) bool {
+		handle, ok := (*bcp.Handles)[command]
+		return ok && bcp.Auth.CanUse(user, handle.Metadata.MinTrustLevel)
+	})
 	for _, reg := range registers {
 		reg(&bcp)
 	}

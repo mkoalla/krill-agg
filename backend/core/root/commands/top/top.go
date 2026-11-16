@@ -226,7 +226,8 @@ func open(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordgo.Inter
 	if err != nil {
 		return err
 	}
-	return bcp.Pages.Open(s, i, b)
+	// /refetchtop's book flips like /top's: whoever can run /top
+	return bcp.Pages.Open(s, i, "top", b)
 }
 
 // map is already reference-like but just for continuity

@@ -2,10 +2,10 @@
 // a list of page builders and gets a message with back/forward buttons that flip
 // through them. No cancel and no timeout, it's just an infographic.
 //
-// Only the user who ran the command can flip it. Like the update prompts, each
-// user has an epoch (their newest book is the only live one) and buttons carry
-// the run ID, so books from before a restart or superseded by a newer one are
-// recognized and closed out instead of answered.
+// Anyone with the rank to run the book's command can flip it. Like the update
+// prompts, each user who opens books has an epoch (their newest book is the
+// only live one) and buttons carry the run ID, so books from before a restart
+// or superseded by a newer one are recognized and closed out instead of answered.
 package pages
 
 import (
@@ -55,24 +55,29 @@ func Embed(title, icon, body string, info Info) *discordgo.MessageEmbed {
 
 // one user's live paginated message
 type book struct {
-	mu    sync.Mutex // one flip at a time
-	pages []Page
-	cur   int // 0-based
-	epoch uint64
+	mu      sync.Mutex // one flip at a time, whoever's flipping
+	command string     // flipping needs the rank to run this
+	pages   []Page
+	cur     int // 0-based
+	epoch   uint64
 }
 
 type Manager struct {
 	mu     sync.Mutex
 	books  map[string]*book // owner -> their newest book
 	epochs map[string]*atomic.Uint64
+	canUse func(user, command string) bool
 }
 
 func New() *Manager {
-	return &Manager{books: map[string]*book{}, epochs: map[string]*atomic.Uint64{}}
+	return &Manager{books: map[string]*book{}, epochs: map[string]*atomic.Uint64{}, canUse: func(string, string) bool { return true }}
 }
 
-// prefix handlers are how clicks reach the manager; call once at startup
-func (man *Manager) Register(addPrefix func(prefix string, f func(s *discordgo.Session, i *discordgo.InteractionCreate) (bool, error))) {
+// prefix handlers are how clicks reach the manager; canUse says whether a user
+// has the rank for a command (the book's), which is what flipping needs.
+// call once at startup
+func (man *Manager) Register(addPrefix func(prefix string, f func(s *discordgo.Session, i *discordgo.InteractionCreate) (bool, error)), canUse func(user, command string) bool) {
+	man.canUse = canUse
 	addPrefix(PREFIX, man.click)
 }
 
@@ -135,9 +140,10 @@ func turn(cur, max int, dir string) int {
 	return (cur + 1) % max
 }
 
-// answers the command with the first page. the user who ran it owns the book,
-// and their previous one (if any) stops responding
-func (man *Manager) Open(s *discordgo.Session, i *discordgo.InteractionCreate, pages []Page) error {
+// answers the interaction with the first page. anyone who can run command may
+// flip it; the user who opened it owns it, and their previous book (if any)
+// stops responding
+func (man *Manager) Open(s *discordgo.Session, i *discordgo.InteractionCreate, command string, pages []Page) error {
 	if len(pages) == 0 {
 		return fmt.Errorf("pages: nothing to show")
 	}
@@ -148,7 +154,7 @@ func (man *Manager) Open(s *discordgo.Session, i *discordgo.InteractionCreate, p
 	}
 
 	man.mu.Lock()
-	b := &book{pages: pages, epoch: man.nextEpoch(owner)}
+	b := &book{pages: pages, command: command, epoch: man.nextEpoch(owner)}
 	man.books[owner] = b
 	man.mu.Unlock()
 
@@ -162,9 +168,9 @@ func (man *Manager) Open(s *discordgo.Session, i *discordgo.InteractionCreate, p
 	})
 }
 
-// the book a click may act on: same run, its owner clicking, and their newest
-func (man *Manager) live(id clickID, clicker string) (*book, bool) {
-	if id.run != run.ID || id.owner != clicker {
+// the book a click names, if it's from this run and still its owner's newest
+func (man *Manager) live(id clickID) (*book, bool) {
+	if id.run != run.ID {
 		return nil, false
 	}
 	man.mu.Lock()
@@ -187,14 +193,18 @@ func (man *Manager) click(s *discordgo.Session, i *discordgo.InteractionCreate) 
 		return true, nil
 	}
 	clicker := i.Member.User.ID
-	b, ok := man.live(id, clicker)
+	b, ok := man.live(id)
 	if !ok {
-		// the owner flipping a book from before a restart or one they've
-		// since replaced: drop its buttons so it reads as finished
+		// a book from before a restart or one its owner has since replaced.
+		// the owner's click drops its buttons so it reads as finished; with
+		// the book gone there's no command to check anyone else's rank against
 		if id.owner == clicker {
 			_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Components: &[]discordgo.MessageComponent{}})
 			return true, err
 		}
+		return true, nil
+	}
+	if !man.canUse(clicker, b.command) {
 		return true, nil
 	}
 

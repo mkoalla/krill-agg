@@ -33,23 +33,20 @@ func TestTurnWraps(t *testing.T) {
 	}
 }
 
-func TestLiveOnlyNewestOwnBook(t *testing.T) {
+func TestLiveOnlyNewestBook(t *testing.T) {
 	man := New()
 	first := &book{epoch: man.nextEpoch("1")}
 	man.books["1"] = first
 	newer := &book{epoch: man.nextEpoch("1")}
 	man.books["1"] = newer
 
-	if _, ok := man.live(clickID{run: run.ID, owner: "1", epoch: first.epoch}, "1"); ok {
+	if _, ok := man.live(clickID{run: run.ID, owner: "1", epoch: first.epoch}); ok {
 		t.Error("a superseded book still flips")
 	}
-	if b, ok := man.live(clickID{run: run.ID, owner: "1", epoch: newer.epoch}, "1"); !ok || b != newer {
+	if b, ok := man.live(clickID{run: run.ID, owner: "1", epoch: newer.epoch}); !ok || b != newer {
 		t.Error("the newest book should flip")
 	}
-	if _, ok := man.live(clickID{run: run.ID, owner: "1", epoch: newer.epoch}, "2"); ok {
-		t.Error("someone else flipped the owner's book")
-	}
-	if _, ok := man.live(clickID{run: "old-run", owner: "1", epoch: newer.epoch}, "1"); ok {
+	if _, ok := man.live(clickID{run: "old-run", owner: "1", epoch: newer.epoch}); ok {
 		t.Error("a book from a previous run still flips")
 	}
 }
