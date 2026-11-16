@@ -55,13 +55,19 @@ def test_days():
 
 
 def test_card_renders():
-    data = CardData(day=124, mean=371.4, dist=SNAPSHOT)
+    data = CardData(title="Krill Club", day=124, mean=371.4, dist=SNAPSHOT)
     svg = render_svg(data)
+    assert "Krill Club" in svg and "GUILD AVERAGE" in svg and "KRILLION" not in svg
     assert "DIVE #124 COMPLETE" in svg and "-3,710m" in svg and ">371<" in svg and "AVG" in svg
     png = render_png(data, scale=1)
     assert png[:8] == b"\x89PNG\r\n\x1a\n"
 
 
 def test_end_labels_give_way_to_marker():
-    assert ">700<" not in render_svg(CardData(day=1, mean=699, dist=SNAPSHOT))
-    assert ">700<" in render_svg(CardData(day=1, mean=350, dist=SNAPSHOT))
+    assert ">700<" not in render_svg(CardData(title="Krill Club", day=1, mean=699, dist=SNAPSHOT))
+    assert ">700<" in render_svg(CardData(title="Krill Club", day=1, mean=350, dist=SNAPSHOT))
+
+
+def test_long_titles_are_cut_to_fit():
+    svg = render_svg(CardData(title="A" * 80, day=124, mean=350, dist=SNAPSHOT))
+    assert "A" * 80 not in svg and "A..." in svg
