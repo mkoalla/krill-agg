@@ -61,10 +61,11 @@ func Register(bcp *types.BotCommandPackage) {
 
 	*bcp.MessageHandlers = append(*bcp.MessageHandlers, func(s *discordgo.Session, m *discordgo.MessageCreate) (logMsg string, err error) {
 		// only read submissions in guild channels picked with /track
-		if m.GuildID == "" || !bcp.Tracking.IsTracked(m.GuildID, m.ChannelID) {
+		g := m.GuildID
+		if g == "" || !bcp.Tracking.IsTracked(g, m.ChannelID) {
 			return "", nil
 		}
-		result := bcp.Scores.Ingest(m.GuildID, m.Author.ID, m.Content)
+		result := bcp.Scores.Ingest(g, m.Author.ID, m.Content)
 		switch result.Outcome {
 		case scores.Ignored:
 			return "", nil

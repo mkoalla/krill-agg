@@ -2,6 +2,7 @@ package scoredb
 
 import (
 	"krill-agg/root/datas/sqlite"
+	"strings"
 	"time"
 )
 
@@ -103,6 +104,62 @@ func (db *ScoreDB) Day(guild string, day int) ([]Row, error) {
 			return rows, nil
 		}
 		rows = append(rows, row)
+	}
+}
+
+// " AND user_id NOT IN (?, ...)" and its args, or nothing to exclude
+func notIn(exclude []string) (string, []any) {
+	if len(exclude) == 0 {
+		return "", nil
+	}
+	args := make([]any, len(exclude))
+	for j, id := range exclude {
+		args[j] = id
+	}
+	return " AND user_id NOT IN (" + strings.TrimSuffix(strings.Repeat("?, ", len(exclude)), ", ") + ")", args
+}
+
+// every result in a guild, any day, except the excluded users' (the leaderboards' source)
+func (db *ScoreDB) Guild(guild string, exclude []string) ([]Row, error) {
+	clause, args := notIn(exclude)
+	iter, err := db.file.Query(`SELECT user_id, day, emojis FROM scores WHERE guild_id = ?`+clause+`;`, append([]any{guild}, args...)...)
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close() //nolint
+	var rows []Row
+	for {
+		row := Row{GuildID: guild}
+		ok, err := iter.NextScan(&row.UserID, &row.Day, &row.Emojis)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return rows, nil
+		}
+		rows = append(rows, row)
+	}
+}
+
+// everyone with at least one result in the guild, except the excluded
+func (db *ScoreDB) Players(guild string, exclude []string) ([]string, error) {
+	clause, args := notIn(exclude)
+	iter, err := db.file.Query(`SELECT DISTINCT user_id FROM scores WHERE guild_id = ?`+clause+`;`, append([]any{guild}, args...)...)
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close() //nolint
+	var ids []string
+	for {
+		var id string
+		ok, err := iter.NextScan(&id)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return ids, nil
+		}
+		ids = append(ids, id)
 	}
 }
 

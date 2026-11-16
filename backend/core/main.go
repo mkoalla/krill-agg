@@ -11,6 +11,8 @@ import (
 	"krill-agg/root/managers/audit"
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/managers/components"
+	"krill-agg/root/managers/leaderboard"
+	"krill-agg/root/managers/pages"
 	"krill-agg/root/managers/scores"
 	"krill-agg/root/managers/tracking"
 	"log"
@@ -37,6 +39,7 @@ const (
 	DISCORD_AUTH_PATH = DATA_PATH + "discord_auth.db"
 	SCORES_PATH       = DATA_PATH + "scores.db"
 	TRACKING_PATH     = DATA_PATH + "tracking.db"
+	LEADERBOARD_PATH  = DATA_PATH + "leaderboard.db"
 )
 
 func setEnvironmentVars() (token string, mode string) {
@@ -73,6 +76,14 @@ func getManScores() *scores.ScoreManager {
 	man, err := scores.New(SCORES_PATH)
 	if err != nil {
 		logger.Panic(fmt.Sprintf("Couldn't init score manager: %v", err), audit.LogGroup.INIT)
+		return nil
+	}
+	return man
+}
+func getManLeaderboard(scores *scores.ScoreManager) *leaderboard.Manager {
+	man, err := leaderboard.New(LEADERBOARD_PATH, scores)
+	if err != nil {
+		logger.Panic(fmt.Sprintf("Couldn't init leaderboard manager: %v", err), audit.LogGroup.INIT)
 		return nil
 	}
 	return man
@@ -188,12 +199,15 @@ func main() {
 
 	checkForUpdates()
 
+	scoreMan := getManScores()
 	commands := commands.Register(commands.RegisterReqs{
-		Auth:       getManAuth(),
-		Components: components.New(),
-		Scores:     getManScores(),
-		Tracking:   getManTracking(),
-		DataDir:    DATA_PATH,
+		Auth:        getManAuth(),
+		Components:  components.New(),
+		Pages:       pages.New(),
+		Leaderboard: getManLeaderboard(scoreMan),
+		Scores:      scoreMan,
+		Tracking:    getManTracking(),
+		DataDir:     DATA_PATH,
 	})
 
 	session, err := bot.Start(bot.StartInstructions{

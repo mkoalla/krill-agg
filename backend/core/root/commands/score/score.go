@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"krill-agg/root/commands/stats"
 	"krill-agg/root/info/krillionapi"
+	"krill-agg/root/info/theme"
 	"krill-agg/root/krillion"
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/types"
@@ -90,6 +91,7 @@ func Register(bcp *types.BotCommandPackage) {
 			embeds := []*discordgo.MessageEmbed{{
 				Author:      &discordgo.MessageEmbedAuthor{Name: user.DisplayName(), IconURL: user.AvatarURL("")},
 				Description: p.Message() + "\n\n" + rank,
+				Color:       theme.ACCENT,
 			}}
 			return edit(s, i, &discordgo.WebhookEdit{Embeds: &embeds})
 		},
