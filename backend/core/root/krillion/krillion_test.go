@@ -159,7 +159,7 @@ func TestNextCluster(t *testing.T) {
 	}{
 		{"variation selector", "✡️x", "✡️", "x"},
 		{"skin tone", "\U0001F44D\U0001F3FDx", "\U0001F44D\U0001F3FD", "x"},
-		{"zwj family", "\U0001F468‍\U0001F469‍\U0001F467x", "\U0001F468‍\U0001F469‍\U0001F467", "x"},
+		{"zwj family", "\U0001F468\u200d\U0001F469\u200d\U0001F467x", "\U0001F468\u200d\U0001F469\u200d\U0001F467", "x"},
 		{"flag", "\U0001F1FA\U0001F1F8x", "\U0001F1FA\U0001F1F8", "x"},
 		{"plain ascii", "abc", "a", "bc"},
 		{"empty", "", "", ""},
