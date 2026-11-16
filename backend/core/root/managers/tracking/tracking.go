@@ -1,102 +1,162 @@
 package tracking
 
 import (
-	fd "krill-agg/root/datas/filedict"
+	"krill-agg/root/datas/trackdb"
+	"maps"
 	"slices"
-	"strconv"
 	"sync"
 )
 
 type guildID = string
 type channelID = string
 
-// guild -> tracked channels, persisted with a filedict. a guild with no channels has no key
+// guild -> tracked channels and its main channel (where daily posts go),
+// persisted in trackdb and mirrored in memory since every message checks
+// IsTracked. a guild with no channels has no key. memory only changes once
+// the file has
 type TrackingManager struct {
-	mu   sync.Mutex // makes each read-modify-write atomic
-	data *fd.FileDict[guildID, []channelID]
-}
-
-func validate(guild *guildID, channels *[]channelID) bool {
-	if _, err := strconv.ParseUint(*guild, 10, 64); err != nil {
-		return false
-	}
-	for _, c := range *channels {
-		if _, err := strconv.ParseUint(c, 10, 64); err != nil {
-			return false
-		}
-	}
-	return true
+	mu      sync.RWMutex
+	db      *trackdb.TrackDB
+	tracked map[guildID][]channelID
+	mains   map[guildID]channelID
 }
 
 func New(path string) (*TrackingManager, error) {
-	table, err := fd.New(path, validate)
+	db, err := trackdb.New(path)
 	if err != nil {
 		return nil, err
 	}
-	return &TrackingManager{data: table}, nil
+	tracked, mains, err := db.Load()
+	if err != nil {
+		db.Close() //nolint
+		return nil, err
+	}
+	return &TrackingManager{db: db, tracked: tracked, mains: mains}, nil
 }
 
-func (man *TrackingManager) Close() error { return man.data.Close() }
+func (man *TrackingManager) Close() error { return man.db.Close() }
 
 func (man *TrackingManager) IsTracked(guild guildID, channel channelID) bool {
-	tracked, _ := man.data.Get(guild)
-	return slices.Contains(tracked, channel)
+	man.mu.RLock()
+	defer man.mu.RUnlock()
+	return slices.Contains(man.tracked[guild], channel)
 }
 
 // copy of the guild's tracked channels, in the order they were added
 func (man *TrackingManager) Channels(guild guildID) []channelID {
-	tracked, _ := man.data.Get(guild)
-	return slices.Clone(tracked)
+	man.mu.RLock()
+	defer man.mu.RUnlock()
+	return slices.Clone(man.tracked[guild])
 }
 
-// adds channels not already tracked; returns how many were new
-func (man *TrackingManager) Track(guild guildID, channels ...channelID) (added int, err error) {
+func (man *TrackingManager) Main(guild guildID) (channelID, bool) {
+	man.mu.RLock()
+	defer man.mu.RUnlock()
+	c, ok := man.mains[guild]
+	return c, ok
+}
+
+// copy of every guild's main channel
+func (man *TrackingManager) Mains() map[guildID]channelID {
+	man.mu.RLock()
+	defer man.mu.RUnlock()
+	return maps.Clone(man.mains)
+}
+
+// adds channels not already tracked; returns how many were new. a guild that
+// had nothing tracked gets its first new channel as main (returned in main)
+func (man *TrackingManager) Track(guild guildID, channels ...channelID) (added int, main channelID, err error) {
 	man.mu.Lock()
 	defer man.mu.Unlock()
-	tracked := man.Channels(guild)
+	tracked := man.tracked[guild]
+	var fresh []channelID
 	for _, c := range channels {
-		if !slices.Contains(tracked, c) {
-			tracked = append(tracked, c)
-			added++
+		if !slices.Contains(tracked, c) && !slices.Contains(fresh, c) {
+			fresh = append(fresh, c)
 		}
 	}
-	if added == 0 {
-		return 0, nil
+	if len(fresh) == 0 {
+		return 0, "", nil
 	}
-	return added, man.save(guild, tracked)
+	if len(tracked) == 0 {
+		main = fresh[0]
+	}
+	if err := man.db.Track(guild, fresh, main); err != nil {
+		return 0, "", err
+	}
+	man.tracked[guild] = append(tracked, fresh...)
+	if main != "" {
+		man.mains[guild] = main
+	}
+	return len(fresh), main, nil
 }
 
-// removes channels; returns how many were tracked
-func (man *TrackingManager) Untrack(guild guildID, channels ...channelID) (removed int, err error) {
+// removes channels; returns how many were tracked, and whether the main
+// channel was among them (it's cleared with them)
+func (man *TrackingManager) Untrack(guild guildID, channels ...channelID) (removed int, lostMain bool, err error) {
 	man.mu.Lock()
 	defer man.mu.Unlock()
-	tracked := man.Channels(guild)
-	before := len(tracked)
-	tracked = slices.DeleteFunc(tracked, func(c channelID) bool {
-		return slices.Contains(channels, c)
-	})
-	removed = before - len(tracked)
-	if removed == 0 {
-		return 0, nil
+	tracked := man.tracked[guild]
+	var gone []channelID
+	for _, c := range tracked {
+		if slices.Contains(channels, c) {
+			gone = append(gone, c)
+		}
 	}
-	return removed, man.save(guild, tracked)
+	if len(gone) == 0 {
+		return 0, false, nil
+	}
+	if err := man.db.Untrack(guild, gone); err != nil {
+		return 0, false, err
+	}
+	man.setTracked(guild, slices.DeleteFunc(slices.Clone(tracked), func(c channelID) bool {
+		return slices.Contains(gone, c)
+	}))
+	if main, ok := man.mains[guild]; ok && slices.Contains(gone, main) {
+		delete(man.mains, guild)
+		lostMain = true
+	}
+	return len(gone), lostMain, nil
 }
 
-// drops every tracked channel in the guild; returns how many there were
+// drops every tracked channel in the guild, and its main channel; returns how many there were
 func (man *TrackingManager) UntrackAll(guild guildID) (removed int, err error) {
 	man.mu.Lock()
 	defer man.mu.Unlock()
-	removed = len(man.Channels(guild))
+	removed = len(man.tracked[guild])
 	if removed == 0 {
 		return 0, nil
 	}
-	return removed, man.save(guild, nil)
+	if err := man.db.UntrackAll(guild); err != nil {
+		return 0, err
+	}
+	delete(man.tracked, guild)
+	delete(man.mains, guild)
+	return removed, nil
 }
 
-// caller holds the lock. writes only this guild's row; empty lists drop it
-func (man *TrackingManager) save(guild guildID, tracked []channelID) error {
-	if len(tracked) == 0 {
-		return man.data.DropSync(guild)
+// makes channel the guild's main channel, overwriting any other, and tracks
+// it if it wasn't. old is the previous main ("" if none)
+func (man *TrackingManager) SetMain(guild guildID, channel channelID) (old channelID, newlyTracked bool, err error) {
+	man.mu.Lock()
+	defer man.mu.Unlock()
+	if err := man.db.SetMain(guild, channel); err != nil {
+		return "", false, err
 	}
-	return man.data.SetSync(guild, tracked)
+	old = man.mains[guild]
+	if !slices.Contains(man.tracked[guild], channel) {
+		man.tracked[guild] = append(man.tracked[guild], channel)
+		newlyTracked = true
+	}
+	man.mains[guild] = channel
+	return old, newlyTracked, nil
+}
+
+// caller holds the lock; empty lists drop the key
+func (man *TrackingManager) setTracked(guild guildID, tracked []channelID) {
+	if len(tracked) == 0 {
+		delete(man.tracked, guild)
+		return
+	}
+	man.tracked[guild] = tracked
 }

@@ -56,10 +56,19 @@ CHART_SCALE = (
 BASE_CHART_TOP = 130
 BASE_FOOT_BASELINE = 334
 CLEARANCE = SCORE_BASELINE + 8  # nothing floats higher than this
-# guild icon: right-aligned under the dive label, as tall as the score row
-ICON_TOP = SCORE_TOP
-ICON_SIZE = SCORE_BASELINE - SCORE_TOP
+# guild icon: stands in for the AVG label under the pin, as big as the players
+ICON_DROP = 2  # chart units between the baseline and the icon
 ICON_ROUND = 0.2  # corner radius, as a share of the side
+# top score card: right-aligned in the score row, as tall as it
+TOP_W = 200
+TOP_H = SCORE_BASELINE - SCORE_TOP
+TOP_PAD = 12
+TOP_RADIUS = 10
+TOP_LABEL_SIZE = 16
+TOP_VALUE_SIZE = 28
+TOP_AVATAR = TOP_H - 16  # diameter
+TOP_OVERLAP = 0.6  # tied avatars step left by this share of a diameter
+TOP_MAX_AVATARS = 3
 
 
 @dataclass
@@ -150,17 +159,28 @@ def chart_svg(data: CardData, pts: list[curve.Point]) -> str:
   {ends}"""
 
 
-def marker_svg(data: CardData, pts: list[curve.Point]) -> str:
-    """The AVG pin, drawn last so it stays over the players."""
+def _label_x(data: CardData) -> float:
+    """where the marker's label sits, in chart units: under the pin, kept on the chart"""
+    return min(max(curve.score_x(data.mean), 14), 306)
+
+
+def marker_svg(data: CardData, pts: list[curve.Point], label: bool = True) -> str:
+    """The AVG pin, drawn last so it stays over the players. label=False leaves
+    the text out for the guild icon to take its place (see avg_icon_svg)."""
     if not pts:
         return ""
     m = curve.score_x(data.mean)
     h = curve.marker_y(pts, m)
-    label_x = min(max(m, 14), 306)
+    text = (
+        f'<text x="{_label_x(data):.3f}" y="90" text-anchor="middle" font-size="9" '
+        f'letter-spacing="{_spacing(9, 0.12)}" fill="{PINK}">{escape(data.marker)}</text>'
+        if label
+        else ""
+    )
     return f"""
   <line x1="{m:.3f}" y1="{min(h, 74) - 3:.3f}" x2="{m:.3f}" y2="{curve.BASELINE}" stroke="{PINK}" stroke-width="1.2"/>
   <circle cx="{m:.3f}" cy="{h:.3f}" r="2.6" fill="{PINK}"/>
-  <text x="{label_x:.3f}" y="90" text-anchor="middle" font-size="9" letter-spacing="{_spacing(9, 0.12)}" fill="{PINK}">{escape(data.marker)}</text>"""
+  {text}"""
 
 
 @dataclass
@@ -245,23 +265,61 @@ def players_svg(data: CardData, placed: list[Placed]) -> str:
     return "\n  ".join(pins + discs)
 
 
-def icon_svg(data: CardData) -> str:
-    """The guild icon as a lightly rounded square in a ring, right-aligned under
-    the dive label."""
-    uri = avatar_uri(data.icon)
+def avg_icon_svg(data: CardData, uri: str | None, chart_top: float) -> str:
+    """The guild icon in place of the AVG label: a lightly rounded square as
+    big as the players' avatars, ringed in the pin's color, just under the
+    baseline below the pin."""
     if not uri:
         return ""
-    x, y, size = CARD_W - PAD - ICON_SIZE, ICON_TOP, ICON_SIZE
-    rx = size * ICON_ROUND
-    box = (
-        f'x="{x:.2f}" y="{y:.2f}" width="{size:.2f}" height="{size:.2f}" rx="{rx:.2f}"'
-    )
+    size = data.user_size
+    x = PAD + _label_x(data) * CHART_SCALE - size / 2
+    y = chart_top + (curve.BASELINE + ICON_DROP) * CHART_SCALE
+    box = f'x="{x:.2f}" y="{y:.2f}" width="{size:.2f}" height="{size:.2f}" rx="{size * ICON_ROUND:.2f}"'
     return (
         f'<clipPath id="icon"><rect {box}/></clipPath>'
         f'<image href="{uri}" x="{x:.2f}" y="{y:.2f}" width="{size:.2f}" height="{size:.2f}" '
         f'preserveAspectRatio="xMidYMid slice" clip-path="url(#icon)"/>'
-        f'<rect {box} fill="none" stroke="{RING}" stroke-width="2"/>'
+        f'<rect {box} fill="none" stroke="{PINK}" stroke-width="2"/>'
     )
+
+
+def top_svg(data: CardData, top: float) -> str:
+    """A navy card with the best score on the left and its scorer's avatar on
+    the right (ties overlap, best-first on top). No names, to keep it quiet."""
+    if not data.players:
+        return ""
+    best = max(p.score for p in data.players)
+    winners = [p for p in data.players if p.score == best][:TOP_MAX_AVATARS]
+    x = CARD_W - PAD - TOP_W
+    spacing = _spacing(TOP_LABEL_SIZE, LABEL_SPACING_EM)
+    parts = [
+        f'<rect x="{x:.2f}" y="{top:.2f}" width="{TOP_W}" height="{TOP_H:.2f}" rx="{TOP_RADIUS}" '
+        f'fill="{ABYSS}" stroke="{HAIRLINE}" stroke-width="1.5"/>',
+        f'<text x="{x + TOP_PAD:.2f}" y="{_baseline_for_top(top + TOP_PAD, TOP_LABEL_SIZE):.2f}" '
+        f'font-size="{TOP_LABEL_SIZE}" letter-spacing="{spacing}" fill="{DRIFT}">TOP SCORE</text>',
+        f'<text x="{x + TOP_PAD:.2f}" y="{top + TOP_H - TOP_PAD:.2f}" font-size="{TOP_VALUE_SIZE}" '
+        f'fill="{FOAM}">{round(best)}</text>',
+    ]
+    r = TOP_AVATAR / 2
+    cy = top + TOP_H / 2
+    # drawn last-first so the first winner lands on top, rightmost
+    for k in reversed(range(len(winners))):
+        cx = x + TOP_W - TOP_PAD - r - k * TOP_AVATAR * TOP_OVERLAP
+        uri = avatar_uri(winners[k].avatar)
+        if uri:
+            parts.append(
+                f'<clipPath id="top{k}"><circle cx="{cx:.2f}" cy="{cy:.2f}" r="{r:.2f}"/></clipPath>'
+                f'<image href="{uri}" x="{cx - r:.2f}" y="{cy - r:.2f}" width="{TOP_AVATAR:.2f}" height="{TOP_AVATAR:.2f}" '
+                f'preserveAspectRatio="xMidYMid slice" clip-path="url(#top{k})"/>'
+            )
+        else:
+            parts.append(
+                f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{r:.2f}" fill="{BLANK}"/>'
+            )
+        parts.append(
+            f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{r:.2f}" fill="none" stroke="{RING}" stroke-width="2"/>'
+        )
+    return "\n  ".join(parts)
 
 
 def render_svg(data: CardData) -> str:
@@ -269,13 +327,14 @@ def render_svg(data: CardData) -> str:
     depth = f"-{10 * score:,}m"
     dive = f"DIVE #{data.day} COMPLETE"
     dive_w = _width(dive, LABEL_SIZE, LABEL_SPACING_EM)
-    title = _fit(data.title, TITLE_SIZE, CARD_W - 2 * PAD - dive_w - SCORE_GAP)
+    title = _fit(f"{data.title}", TITLE_SIZE, CARD_W - 2 * PAD - dive_w - SCORE_GAP)
     beside_score = PAD + _width(str(score), SCORE_SIZE) + SCORE_GAP
     label_spacing = _spacing(LABEL_SIZE, LABEL_SPACING_EM)
     better = f"BETTER THAN {curve.format_percentile(data.better_than())}% OF {data.population.upper()}"
     total = "" if data.sample is None else f"{data.sample:,} TOTAL"
     pts = curve.points(curve.smooth(data.dist))
     lay = layout(data, pts)
+    icon = avatar_uri(data.icon)
     chart = f"translate({PAD} {lay.chart_top:.2f}) scale({CHART_SCALE:.5f})"
 
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{CARD_W}" height="{lay.card_h:.0f}" viewBox="0 0 {CARD_W} {lay.card_h:.0f}" font-family="{FONT_FAMILY}">
@@ -295,7 +354,7 @@ def render_svg(data: CardData) -> str:
 
   <text x="{PAD}" y="{_baseline_for_top(TITLE_TOP, TITLE_SIZE):.2f}" font-size="{TITLE_SIZE}" fill="{FOAM}">{escape(title)}</text>
   <text x="{CARD_W - PAD}" y="{_baseline_for_top(TITLE_TOP, LABEL_SIZE):.2f}" text-anchor="end" font-size="{LABEL_SIZE}" letter-spacing="{label_spacing}" fill="{DRIFT}">{dive}</text>
-  {icon_svg(data)}
+  {top_svg(data, SCORE_TOP)}
 
   <text x="{PAD}" y="{SCORE_BASELINE:.2f}" font-size="{SCORE_SIZE}" fill="{CYAN}" opacity="0.45" filter="url(#glow)">{score}</text>
   <text x="{PAD}" y="{SCORE_BASELINE:.2f}" font-size="{SCORE_SIZE}" fill="{FOAM}">{score}</text>
@@ -305,8 +364,9 @@ def render_svg(data: CardData) -> str:
   <g transform="{chart}">{chart_svg(data, pts)}
   </g>
   {players_svg(data, lay.players)}
-  <g transform="{chart}">{marker_svg(data, pts)}
+  <g transform="{chart}">{marker_svg(data, pts, label=not icon)}
   </g>
+  {avg_icon_svg(data, icon, lay.chart_top) if pts else ""}
 
   <text x="{PAD}" y="{lay.foot_baseline:.2f}" font-size="{LABEL_SIZE}" letter-spacing="{label_spacing}" fill="{CYAN}" filter="url(#shadow)">{escape(better)}</text>
   <text x="{CARD_W - PAD}" y="{lay.foot_baseline:.2f}" text-anchor="end" font-size="{LABEL_SIZE}" letter-spacing="{label_spacing}" fill="{CYAN}" filter="url(#shadow)">{total}</text>

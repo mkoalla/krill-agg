@@ -61,6 +61,38 @@ func Heading(day int) string {
 	return fmt.Sprintf("# Krillion Daily Results #%d 🦐", day)
 }
 
+// "Today's Winner: <@uid>", or a dotted list under "Today's Winners:" for a
+// tie. empty with no players. entries come sorted best first
+func Winners(entries []scores.Entry) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	best := entries[0].Score.Score
+	var ids []string
+	for _, e := range entries {
+		if e.Score.Score != best {
+			break
+		}
+		ids = append(ids, e.UserID)
+	}
+	if len(ids) == 1 {
+		return fmt.Sprintf("Today's Winner: <@%s>", ids[0])
+	}
+	lines := []string{"Today's Winners:"}
+	for _, id := range ids {
+		lines = append(lines, fmt.Sprintf("- <@%s>", id))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// the text above the embeds: the heading, then who won if asked
+func Content(snap *Snapshot, winners bool) string {
+	if w := Winners(snap.Entries); winners && w != "" {
+		return Heading(snap.Day) + "\n" + w
+	}
+	return Heading(snap.Day)
+}
+
 // the board with the percentiles as a second section of the same embed. the
 // day is in the message heading, so the embed is just "Scores"
 func Combined(day int, entries []scores.Entry, dist krillionapi.Stats) *discordgo.MessageEmbed {
@@ -109,7 +141,8 @@ func Register(bcp *types.BotCommandPackage) {
 			}
 			day := krillion.Today()
 			// one render per guild: a call made while one is underway just links to it
-			t, err := claimFor(s, i, day, ImageOptions{})
+			opts := ImageOptions{}
+			t, err := claimFor(s, i, day, opts)
 			if t == nil || err != nil {
 				return err
 			}
@@ -124,7 +157,7 @@ func Register(bcp *types.BotCommandPackage) {
 				return err
 			}
 			// a person asking again soon gets the recent card instead of a re-render
-			_, err = withImage(s, replySender(s, i), bcp, snap, embeds, t)
+			_, err = withImage(s, replySender(s, i), bcp, snap, embeds, t, opts)
 			return err
 		},
 	}

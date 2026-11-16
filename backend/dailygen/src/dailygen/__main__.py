@@ -30,7 +30,7 @@ def main() -> int:
     )
     parser.add_argument("--user-size", type=float, default=28, help="avatar diameter in px (square crop)")
     parser.add_argument("--max-push", type=int, default=4, help="avatars a clashing stack grows before wrapping down")
-    parser.add_argument("--icon", help="guild icon image, right-aligned under the dive label")
+    parser.add_argument("--icon", help="guild icon image, drawn in place of the AVG label")
     args = parser.parse_args()
     try:
         players = [parse_user(spec) for spec in args.user]

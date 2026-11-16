@@ -193,11 +193,14 @@ func imageEmbed(description string, url string) *discordgo.MessageEmbed {
 	return embed
 }
 
-// the zero value reuses a recent card. not a command option: only code sets it
+// the zero value is what /forcedaily gets. not command options: only code sets them
 type ImageOptions struct {
 	// skip the cache and render anew (a scheduled post wants today's latest).
 	// still one render per guild: one already underway is linked to instead
 	Fresh bool
+	// name today's winner(s) under the heading; the day isn't over for a
+	// mid-day /forcedaily, so only the scheduled post does
+	Winners bool
 }
 
 // claims this guild's render for the interaction, editing its reply to point
@@ -265,10 +268,10 @@ func channelSender(s *discordgo.Session, channel string) sender {
 // posts the report with the card as a second embed in the same message: a
 // cached card straight away, or a placeholder (so the board never waits) and
 // then an edit that attaches the png. t comes from claimFor or claimWait
-func withImage(s *discordgo.Session, post sender, bcp *types.BotCommandPackage, snap *Snapshot, report []*discordgo.MessageEmbed, t *ticket) (*discordgo.Message, error) {
+func withImage(s *discordgo.Session, post sender, bcp *types.BotCommandPackage, snap *Snapshot, report []*discordgo.MessageEmbed, t *ticket, opts ImageOptions) (*discordgo.Message, error) {
 	send := func(image *discordgo.MessageEmbed, files []*discordgo.File) (*discordgo.Message, error) {
 		embeds := append(append([]*discordgo.MessageEmbed{}, report...), image)
-		return post(Heading(snap.Day), embeds, files)
+		return post(Content(snap, opts.Winners), embeds, files)
 	}
 
 	if t.cached != nil {
@@ -321,13 +324,14 @@ func PostDaily(s *discordgo.Session, bcp *types.BotCommandPackage, channel strin
 		return "", fmt.Errorf("channel %s isn't in a guild", channel)
 	}
 	day := krillion.Today()
-	t := claimWait(ch.GuildID, day, ImageOptions{Fresh: true})
+	opts := ImageOptions{Fresh: true, Winners: true}
+	t := claimWait(ch.GuildID, day, opts)
 	defer t.done()
 	embeds, snap, err := Report(bcp, ch.GuildID, day)
 	if err != nil {
 		return "", err
 	}
-	msg, err := withImage(s, channelSender(s, channel), bcp, snap, embeds, &t)
+	msg, err := withImage(s, channelSender(s, channel), bcp, snap, embeds, &t, opts)
 	if msg == nil {
 		return "", err
 	}

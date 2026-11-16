@@ -34,8 +34,9 @@ uv run python -m dailygen --title "The Krill Club" --score 371 --out card.png \
 ```
 
 In `--json`, players are `"users": [{"score": 415, "avatar": "avatars/alice.png"}]`.
-`--icon PATH` (or `"icon"` in `--json`) draws the guild's icon in a ring,
-right-aligned under the dive label; a missing or unreadable file draws nothing.
+`--icon PATH` (or `"icon"` in `--json`) draws the guild's icon
+in place of the AVG label under the pin (as big as the players, ringed in the pin's
+pink); a missing or unreadable file keeps the label.
 
 `percentile` is optional; without it the card estimates it from `dist` the same
 way the bot does (buckets below the score plus a linear share of its own).

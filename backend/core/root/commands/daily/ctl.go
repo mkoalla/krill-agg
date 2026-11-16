@@ -5,38 +5,79 @@ import (
 	"fmt"
 	"krill-agg/root/ctl"
 	"krill-agg/root/types"
+	"maps"
 	"net/url"
+	"slices"
 	"strings"
+	"sync"
 
 	"github.com/bwmarrin/discordgo"
 )
 
-// `main ctl daily <channel>...`: posts today's report in each channel, one at
-// a time. every channel is tried; the error lists the ones that failed
-func CtlDaily(s *discordgo.Session, bcp *types.BotCommandPackage) ctl.Handler {
-	return func(args url.Values) (string, error) {
-		channels := args["channel"]
-		if len(channels) == 0 {
-			return "", errors.New("no channel given")
+// guilds posted at once by `ctl daily`. each one is mostly waiting on
+// krillion, discord and the renderer, so a few overlap well
+const CTL_WORKERS = 5
+
+// swapped in tests
+var postDaily = PostDaily
+
+type ctlResult struct {
+	link string
+	err  error
+}
+
+// posts in every channel, at most workers at a time. results line up with channels
+func postAll(channels []string, workers int, post func(channel string) (string, error)) []ctlResult {
+	results := make([]ctlResult, len(channels))
+	slots := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for j, channel := range channels {
+		wg.Go(func() {
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			link, err := post(channel)
+			results[j] = ctlResult{link, err}
+		})
+	}
+	wg.Wait()
+	return results
+}
+
+// `main ctl daily`: posts today's report in every guild's main channel (see
+// /mainchan), CTL_WORKERS at a time. every guild is tried. the first line of
+// the output (or error) is a summary; links or failures follow it, one per line.
+// logf announces the run before it starts
+func CtlDaily(s *discordgo.Session, bcp *types.BotCommandPackage, logf func(msg string)) ctl.Handler {
+	return func(url.Values) (string, error) {
+		mains := bcp.Tracking.Mains()
+		if len(mains) == 0 {
+			return "no guild has a main channel; nothing posted", nil
 		}
-		var posted []string
-		var errs []error
-		for _, channel := range channels {
-			link, err := PostDaily(s, bcp, channel)
-			if link != "" {
-				posted = append(posted, "posted "+link)
+		guilds := slices.Sorted(maps.Keys(mains))
+		channels := make([]string, len(guilds))
+		for j, g := range guilds {
+			channels[j] = mains[g]
+		}
+		logf(fmt.Sprintf("ctl daily: posting to %d channel(s)", len(channels)))
+
+		results := postAll(channels, CTL_WORKERS, func(channel string) (string, error) {
+			return postDaily(s, bcp, channel)
+		})
+		var links, failures []string
+		for j, r := range results {
+			if r.link != "" {
+				links = append(links, "posted "+r.link)
 			}
-			if err != nil {
-				errs = append(errs, fmt.Errorf("%s: %v", channel, err))
+			if r.err != nil {
+				failures = append(failures, fmt.Sprintf("guild %s (channel %s): %v", guilds[j], channels[j], r.err))
 			}
 		}
-		out := strings.Join(posted, "\n")
-		if len(errs) > 0 {
-			if out != "" {
-				errs = append([]error{errors.New(out)}, errs...)
-			}
-			return "", errors.Join(errs...)
+		// a post can go out and still fail (e.g. its image), so it counts as failed
+		ok := len(channels) - len(failures)
+		summary := fmt.Sprintf("posted to %d channel(s) (%d failed)", ok, len(failures))
+		if len(failures) > 0 {
+			return "", errors.New(strings.Join(append([]string{summary}, append(failures, links...)...), "\n"))
 		}
-		return out, nil
+		return strings.Join(append([]string{summary}, links...), "\n"), nil
 	}
 }

@@ -57,6 +57,17 @@ def test_tall_stacks_grow_the_card():
 def test_players_render():
     data = CardData(title="t", day=1, mean=350, dist=SNAPSHOT, players=[Player(400, "/nope.png"), Player(2)])
     svg = render_svg(data)
-    assert svg.count('stroke="#a7b1c2"') == 2  # a ring each, no images
+    assert svg.count('stroke="#a7b1c2"') == 3  # a ring each plus the winner's on the top card, no images
     assert "<image" not in svg
     assert render_png(data, scale=1)[:4] == b"\x89PNG"
+
+
+def test_top_score_card():
+    from dailygen.card import top_svg
+
+    assert top_svg(CardData(title="t", day=1, mean=350, dist=SNAPSHOT), 58) == ""
+    data = CardData(title="t", day=1, mean=350, dist=SNAPSHOT,
+                    players=[Player(300), Player(415), Player(415), Player(200)])
+    svg = top_svg(data, 58)
+    assert "TOP SCORE" in svg and ">415</text>" in svg
+    assert svg.count('stroke="#a7b1c2"') == 2  # one ring per tied winner

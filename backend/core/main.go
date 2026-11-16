@@ -114,8 +114,8 @@ func checkForUpdates() {
 	}
 }
 
-const CTL_USAGE = `usage: main ctl <command> [args]
-  daily <channel-id>...   post today's report (fresh card) in each channel`
+const CTL_USAGE = `usage: main ctl <command>
+  daily   post today's report (fresh card) in every guild's main channel`
 
 // the client half of the control socket: hands a command to the running bot
 func runCtl(args []string) int {
@@ -123,19 +123,17 @@ func runCtl(args []string) int {
 		fmt.Fprintln(os.Stderr, CTL_USAGE)
 		return 2
 	}
-	values := url.Values{}
 	switch args[0] {
 	case "daily":
-		if len(args) < 2 {
+		if len(args) > 1 {
 			fmt.Fprintln(os.Stderr, CTL_USAGE)
 			return 2
 		}
-		values["channel"] = args[1:]
 	default:
 		fmt.Fprintln(os.Stderr, CTL_USAGE)
 		return 2
 	}
-	out, err := ctl.Call(ctl.SOCKET, args[0], values)
+	out, err := ctl.Call(ctl.SOCKET, args[0], nil)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -148,14 +146,17 @@ func runCtl(args []string) int {
 
 func startCtl(session *bot.Session) *ctl.Server {
 	srv, err := ctl.Serve(ctl.SOCKET, map[string]ctl.Handler{
-		"daily": daily.CtlDaily(session.DGSession, session.Package),
+		"daily": daily.CtlDaily(session.DGSession, session.Package, func(msg string) {
+			logger.Add(msg, audit.LogGroup.CTL)
+		}),
 	}, func(cmd string, args url.Values, out string, err error) {
-		call := fmt.Sprintf("ctl %s %v", cmd, args)
+		// failures in full; a success only by its summary line (the caller gets the rest)
 		if err != nil {
-			logger.Warn(fmt.Sprintf("%s: %v", call, err), audit.LogGroup.CTL)
+			logger.Warn(fmt.Sprintf("ctl %s: %v", cmd, err), audit.LogGroup.CTL)
 			return
 		}
-		logger.Add(fmt.Sprintf("%s: %s", call, out), audit.LogGroup.CTL)
+		summary, _, _ := strings.Cut(out, "\n")
+		logger.Add(fmt.Sprintf("ctl %s: %s", cmd, summary), audit.LogGroup.CTL)
 	})
 	if err != nil {
 		// the bot still works; only scheduled posts are lost

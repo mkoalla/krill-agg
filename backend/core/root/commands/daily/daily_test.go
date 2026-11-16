@@ -29,6 +29,36 @@ func TestHeading(t *testing.T) {
 	}
 }
 
+func TestWinners(t *testing.T) {
+	entry := func(uid string, emojis string) scores.Entry {
+		p, err := krillion.Rebuild(124, emojis)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return scores.Entry{UserID: uid, Score: p}
+	}
+	top, tie, low := entry("1", "🦑🦑🦑🐟🦑🦑🏮"), entry("2", "🦑🦑🦑🐟🦑🦑🏮"), entry("3", "⬛⬛⬛⬛⬛⬛⬛")
+	if got := Winners(nil); got != "" {
+		t.Errorf("no players: %q", got)
+	}
+	if got := Winners([]scores.Entry{top, low}); got != "Today's Winner: <@1>" {
+		t.Errorf("one winner: %q", got)
+	}
+	if got := Winners([]scores.Entry{top, tie, low}); got != "Today's Winners:\n- <@1>\n- <@2>" {
+		t.Errorf("tie: %q", got)
+	}
+	snap := &Snapshot{Day: 124, Entries: []scores.Entry{top, low}}
+	if got := Content(snap, true); got != "# Krillion Daily Results #124 🦐\nToday's Winner: <@1>" {
+		t.Errorf("Content() = %q", got)
+	}
+	if got := Content(snap, false); got != "# Krillion Daily Results #124 🦐" {
+		t.Errorf("Content(no winners) = %q", got)
+	}
+	if got := Content(&Snapshot{Day: 124}, true); got != "# Krillion Daily Results #124 🦐" {
+		t.Errorf("empty Content() = %q", got)
+	}
+}
+
 func TestCombined(t *testing.T) {
 	dist := krillionapi.Stats{Sample: 3245071, Dist: []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3245071, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 	entries := []scores.Entry{{UserID: "1", Score: krillion.PlayerScore{Day: 124, Score: 415, Choices: []string{"🦑", "🦑", "🦑", "🐟", "🦑", "🦑", "🏮"}}}}

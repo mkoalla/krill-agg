@@ -1,4 +1,4 @@
-.PHONY : init built up down logs dev update live-daily
+.PHONY : init built up down logs dev update live-daily dev-daily
 .DEFAULT_GOAL := build # -> just make
 
 # setup data/ and link env
@@ -27,14 +27,14 @@ down:
 logs:
 	$(MAKE) -C ./backend/ logs
 
-# posts today's report (always a fresh card) in each CHANNEL from the running
-# bot, for cron: make live-daily CHANNEL="<channel-id> [<channel-id>...]"
+# posts today's report (always a fresh card) in every guild's main channel
+# (set with /mainchan) from the running bot. for cron
 live-daily:
-	@if [ -z "$(CHANNEL)" ]; then \
-		echo 'usage: make live-daily CHANNEL="<channel-id>..."'; \
-		exit 1; \
-	fi
-	docker compose exec -T main ./main ctl daily $(CHANNEL)
+	@ docker compose exec -T main ./main ctl daily
+
+# live-daily against a `make dev` bot (its socket is on this host's /tmp)
+dev-daily:
+	@ cd backend/core && go run . ctl daily
 
 DEV_DAILYGEN_PORT := 40404
 
