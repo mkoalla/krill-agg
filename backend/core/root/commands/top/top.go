@@ -311,8 +311,21 @@ func Register(bcp *types.BotCommandPackage) {
 		Callback: func(s *discordgo.Session, i *discordgo.InteractionCreate) error {
 			caller := i.Member.User.ID
 			user := option(i, "user", caller)
-			page := userPage(s, bcp, i.GuildID, guildName(s, i.GuildID), user, option(i, "since", leaderboard.ALLTIME), user == caller)
-			return bcp.Pages.Open(s, i, "topu", []pages.Page{page})
+			period := option(i, "since", leaderboard.ALLTIME)
+			name := guildName(s, i.GuildID)
+			// one page, so it's built once (no buttons to flip it) and kept to
+			// sit above the trend card
+			var ranks *discordgo.MessageEmbed
+			page := userPage(s, bcp, i.GuildID, name, user, period, user == caller)
+			kept := func(at pages.Info) (*discordgo.MessageEmbed, error) {
+				embed, err := page(at)
+				ranks = embed
+				return embed, err
+			}
+			if err := bcp.Pages.Open(s, i, "topu", []pages.Page{kept}); err != nil {
+				return err
+			}
+			return attachTrend(s, bcp, i, ranks, name, user, period)
 		},
 	}
 	(*bcp.Handles)["refetchtop"] = CommandInfo{

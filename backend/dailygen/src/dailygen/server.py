@@ -17,6 +17,13 @@ it, never create or delete it ourselves.
 played. "dist" is krillion's 20 bucket counts; null, [], or all-zero when
 there's no distribution that day. "population" overrides the "OF ..." footer
 wording (default "today's players").
+POST /trend {"guild", "user", "title", "guild_name", "images", "points",
+             "ma"?, "window"?, "rank"?, "deadline"?}
+  -> 200 {"path": "<guild>/users/<user>/trend.webp"}, drawn anew every time
+One player's games over a period (/topu): "points" is [{"day", "score"}] per
+game, "ma" [{"day", "value"}] the moving average the bot worked out over a
+"window" (e.g. "1-WEEK"), "rank" their place on the guild's best-score board.
+The avatar is <guild>/users/<user>/<images>/0.png; errors are as /render's.
 GET /health -> 200
 """
 
@@ -30,6 +37,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from . import trend
 from .card import CardData, render_webp
 from .players import Player
 
@@ -97,6 +105,43 @@ def build(body: dict, data_dir: Path) -> tuple[CardData, Path]:
     return data, card_dir / f"daily_{day}.webp"
 
 
+def build_trend(body: dict, data_dir: Path) -> tuple[trend.TrendData, Path]:
+    """/trend request -> its card and where to write it. raises BadRequest on bad input"""
+    guild = str(body.get("guild", ""))
+    user = str(body.get("user", ""))
+    if not GUILD_ID.match(guild) or not GUILD_ID.match(user):  # keeps paths inside data_dir
+        raise BadRequest("guild and user must be discord ids")
+    images_name = str(body.get("images", ""))
+    if not FILE_NAME.match(images_name):
+        raise BadRequest("images must be a folder name")
+    try:
+        points = sorted((int(p["day"]), float(p["score"])) for p in body["points"])
+        ma = sorted((int(p["day"]), float(p["value"])) for p in body.get("ma") or [])
+        rank = None if body.get("rank") is None else int(body["rank"])
+    except (KeyError, TypeError, ValueError) as err:
+        raise BadRequest(f"bad field: {err}") from None
+    if not points:
+        raise BadRequest("points must not be empty")
+    user_dir = data_dir / guild / "users" / user
+    data = trend.TrendData(
+        title=str(body.get("title", "")),
+        guild=str(body.get("guild_name", "")),
+        points=points,
+        ma=ma,
+        window=str(body.get("window", ""))[:20],
+        rank=rank,
+        avatar=str(user_dir / images_name / "0.png"),
+    )
+    return data, user_dir / "trend.webp"
+
+
+# each card's endpoint: how to read its request and draw it
+ROUTES = {
+    "/render": (build, render_webp),
+    "/trend": (build_trend, trend.render_webp),
+}
+
+
 def parse_deadline(body: dict) -> float | None:
     """the bot's optional "deadline": unix milliseconds it stops waiting at"""
     raw = body.get("deadline")
@@ -142,9 +187,11 @@ def make_handler(data_dir: Path):
                 self._reply(404, {"error": "not found"})
 
         def do_POST(self):
-            if self.path != "/render":
+            route = ROUTES.get(self.path)
+            if route is None:
                 self._reply(404, {"error": "not found"})
                 return
+            parse, render = route
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if not 0 < length <= MAX_BODY:
@@ -152,7 +199,7 @@ def make_handler(data_dir: Path):
                 body = json.loads(self.rfile.read(length))
                 if not isinstance(body, dict):
                     raise BadRequest("body must be a json object")
-                data, out = build(body, data_dir)
+                data, out = parse(body, data_dir)
                 deadline = parse_deadline(body)
             except (BadRequest, json.JSONDecodeError, ValueError) as err:
                 self._reply(400, {"error": str(err)})
@@ -163,7 +210,7 @@ def make_handler(data_dir: Path):
                 self._reply(504, {"error": "past the bot's deadline"})
                 return
             try:
-                card = render_webp(data)
+                card = render(data)
                 if past(deadline):
                     self._reply(504, {"error": "past the bot's deadline"})
                     return

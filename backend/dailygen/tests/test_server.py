@@ -20,8 +20,8 @@ def server(tmp_path):
     srv.shutdown()
 
 
-def post(url, body):
-    req = urllib.request.Request(url + "/render", data=json.dumps(body).encode(),
+def post(url, body, endpoint="/render"):
+    req = urllib.request.Request(url + endpoint, data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"}, method="POST")
     try:
         with urllib.request.urlopen(req) as resp:

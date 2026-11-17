@@ -61,11 +61,51 @@ func Render(ctx context.Context, req Request) (path string, err error) {
 	if deadline, ok := ctx.Deadline(); ok {
 		req.Deadline = deadline.UnixMilli()
 	}
+	return post(ctx, "/render", req)
+}
+
+// one game on a player's trend
+type TrendPoint struct {
+	Day   int `json:"day"`
+	Score int `json:"score"`
+}
+
+// the moving average as of a day
+type TrendAverage struct {
+	Day   int     `json:"day"`
+	Value float64 `json:"value"`
+}
+
+// one player's games over a period (/topu). the avatar is implicit:
+// <guild>/users/<User>/<Images>/0.png under DIR. drawn anew every time
+type TrendRequest struct {
+	Guild     string         `json:"guild"`
+	User      string         `json:"user"`
+	Title     string         `json:"title"`      // their server nickname
+	GuildName string         `json:"guild_name"` // for the rank line
+	Images    string         `json:"images"`
+	Points    []TrendPoint   `json:"points"` // at least one
+	MA        []TrendAverage `json:"ma"`
+	Window    string         `json:"window"` // the moving average's span, e.g. "1-WEEK"
+	Rank      *int           `json:"rank"`   // on the best-score board; nil draws no rank line
+	Deadline  int64          `json:"deadline,omitempty"`
+}
+
+// renders a player's trend card; path is relative to DIR
+func RenderTrend(ctx context.Context, req TrendRequest) (path string, err error) {
+	if deadline, ok := ctx.Deadline(); ok {
+		req.Deadline = deadline.UnixMilli()
+	}
+	return post(ctx, "/trend", req)
+}
+
+// sends one render request and reads back where the card landed
+func post(ctx context.Context, endpoint string, req any) (path string, err error) {
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return "", err
 	}
-	post, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/render", bytes.NewReader(payload))
+	post, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return "", err
 	}

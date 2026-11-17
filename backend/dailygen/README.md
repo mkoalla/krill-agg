@@ -77,6 +77,14 @@ for — see the rendering rules above. `population` overrides the "OF ..."
 wording in the "BETTER THAN" footer line (default "today's players"; the bot
 sends "that day's players" when backfilling a past day). `GET /health` is 200.
 
+`POST /trend` with `{"guild", "user", "title", "guild_name", "images",
+"points": [{"day", "score"}], "ma"?: [{"day", "value"}], "window"?, "rank"?,
+"deadline"?}` draws one player's games over a period (for `/topu`) and writes
+`<data-dir>/<guild>/users/<user>/trend.webp`, overwriting each time. It answers
+like `/render`. The avatar is `<guild>/users/<user>/<images>/0.png`. The bot
+works out the moving average (`ma`, over `window`, e.g. `"1-WEEK"`) and the
+player's best-score `rank`. Best and worst are taken from `points`.
+
 In compose this runs as `dailygen` on the `krill-agg` network, sharing the
 `data/` mount with the bot, which reaches it at `http://dailygen:40404`.
 `make dev` starts this server on localhost alongside the bot (stopping it when

@@ -50,15 +50,21 @@ def _num(v: float) -> str:
     return f"{v:.3f}".rstrip("0").rstrip(".")
 
 
-def bezier_path(pts: list[Point]) -> str:
-    """Catmull-Rom through every point, written as cubic beziers (ends clamped)."""
+def bezier_path(pts: list[Point], y_bounds: tuple[float, float] | None = None) -> str:
+    """Catmull-Rom through every point, written as cubic beziers (ends clamped).
+    y_bounds (lo, hi) clamps the control points' y too: a bezier stays inside
+    its control points, so with every point in bounds the curve never leaves them."""
     if len(pts) < 2:
         return ""
+
+    def cy(y: float) -> float:
+        return y if y_bounds is None else min(max(y, y_bounds[0]), y_bounds[1])
+
     d = f"M {_num(pts[0][0])} {_num(pts[0][1])}"
     for r in range(len(pts) - 1):
         p0, p1, p2, p3 = pts[max(0, r - 1)], pts[r], pts[r + 1], pts[min(len(pts) - 1, r + 2)]
-        c1 = (p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6)
-        c2 = (p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6)
+        c1 = (p1[0] + (p2[0] - p0[0]) / 6, cy(p1[1] + (p2[1] - p0[1]) / 6))
+        c2 = (p2[0] - (p3[0] - p1[0]) / 6, cy(p2[1] - (p3[1] - p1[1]) / 6))
         d += f" C {_num(c1[0])} {_num(c1[1])}, {_num(c2[0])} {_num(c2[1])}, {_num(p2[0])} {_num(p2[1])}"
     return d
 
