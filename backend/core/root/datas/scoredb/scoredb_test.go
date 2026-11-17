@@ -43,3 +43,42 @@ func TestGuildAndPlayersExclude(t *testing.T) {
 		t.Fatalf("Players(from day 2) = %v", ids)
 	}
 }
+
+func TestCountAndDelete(t *testing.T) {
+	db, err := New(filepath.Join(t.TempDir(), "scores.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close() //nolint
+	if err := db.UpsertMany([]Row{
+		{GuildID: "g", UserID: "a", Day: 1, Emojis: "x"},
+		{GuildID: "g", UserID: "a", Day: 2, Emojis: "x"},
+		{GuildID: "g", UserID: "a", Day: 3, Emojis: "x"},
+		{GuildID: "g", UserID: "b", Day: 1, Emojis: "x"},
+		{GuildID: "other", UserID: "a", Day: 1, Emojis: "x"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := db.CountUser("g", "a"); err != nil || n != 3 {
+		t.Fatalf("CountUser = %d, %v", n, err)
+	}
+	if ok, err := db.Delete("g", "a", 2); err != nil || !ok {
+		t.Fatalf("Delete existing = %v, %v", ok, err)
+	}
+	if ok, err := db.Delete("g", "a", 2); err != nil || ok {
+		t.Fatalf("Delete missing = %v, %v", ok, err)
+	}
+	if n, err := db.DeleteUser("g", "a"); err != nil || n != 2 {
+		t.Fatalf("DeleteUser = %d, %v", n, err)
+	}
+	// only that user, only that guild
+	if n, _ := db.CountUser("g", "a"); n != 0 {
+		t.Errorf("a still has %d in g", n)
+	}
+	if n, _ := db.CountUser("g", "b"); n != 1 {
+		t.Errorf("b lost results: %d", n)
+	}
+	if n, _ := db.CountUser("other", "a"); n != 1 {
+		t.Errorf("a's other guild lost results: %d", n)
+	}
+}

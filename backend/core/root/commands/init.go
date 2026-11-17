@@ -5,6 +5,7 @@ import (
 	"krill-agg/root/commands/channels"
 	"krill-agg/root/commands/daily"
 	"krill-agg/root/commands/day"
+	"krill-agg/root/commands/drop"
 	"krill-agg/root/commands/help"
 	"krill-agg/root/commands/krill"
 	"krill-agg/root/commands/modrank"
@@ -49,6 +50,7 @@ var registers = []func(*types.BotCommandPackage){
 	channels.Register,
 	daily.Register,
 	day.Register,
+	drop.Register,
 	help.Register,
 	krill.Register,
 	modrank.Register,

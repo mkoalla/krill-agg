@@ -30,7 +30,7 @@ func customID(base string, userID string) string {
 }
 
 // how long a user has to answer before the worker ignores the new score
-const PROMPT_TIMEOUT = 2 * time.Minute
+const PROMPT_TIMEOUT = 30 * time.Second
 
 // FromHandle only supplies the auth rank check; "stats" is DEFAULT, same as submitting.
 // no invalidation rules: they sweep the whole group (every user), and the
@@ -113,10 +113,15 @@ func updateButtons(userID string) []discordgo.MessageComponent {
 	}
 }
 
+// "Update your score for day 124?\nCurrent:\n- 300 …\nNew:\n- 415 …"
+func updateQuestion(result scores.Result, expiry time.Time) string {
+	return fmt.Sprintf("Update your score for day %d?\nCurrent:\n- %s\nNew:\n- %s\n-# expires <t:%d:R>",
+		result.Score.Day, result.Existing.Format(), result.Score.Format(), expiry.Unix())
+}
+
 func startUpdatePrompt(bcp *types.BotCommandPackage, s *discordgo.Session, m *discordgo.MessageCreate, result scores.Result) error {
 	expiry := time.Now().Add(PROMPT_TIMEOUT)
-	content := fmt.Sprintf("Update your score for day %d? Current: %s; New: %s\n-# expires <t:%d:R>",
-		result.Score.Day, result.Existing.Format(), result.Score.Format(), expiry.Unix())
+	content := updateQuestion(result, expiry)
 	msg, err := s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
 		Content:         content,
 		Reference:       m.Reference(),

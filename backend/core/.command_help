@@ -10,6 +10,9 @@ Shows someone's result for a day and where it ranks among today's players.
 /day
 Shows which Krillion is live and when the next one starts.
 
+/drop || [day]
+Deletes your score for a day, or all of them, after confirming twice.
+
 /krill || [day]
 Shows a day's 100-point krillion answers and their quips, spoilered.
 

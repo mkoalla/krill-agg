@@ -164,6 +164,38 @@ func (db *ScoreDB) Players(guild string, exclude []string, minDay int) ([]string
 	}
 }
 
+// how many results a user has in a guild
+func (db *ScoreDB) CountUser(guild, user string) (int, error) {
+	iter, err := db.file.Query(`SELECT COUNT(*) FROM scores WHERE guild_id = ? AND user_id = ?;`, guild, user)
+	if err != nil {
+		return 0, err
+	}
+	defer iter.Close() //nolint
+	var n int
+	_, err = iter.NextScan(&n)
+	return n, err
+}
+
+// removes a user's result for a day; deleted=false means there wasn't one
+func (db *ScoreDB) Delete(guild, user string, day int) (deleted bool, err error) {
+	res, err := db.file.Exec(`DELETE FROM scores WHERE guild_id = ? AND user_id = ? AND day = ?;`, guild, user, day)
+	if err != nil {
+		return false, err
+	}
+	n, err := (*res).RowsAffected()
+	return n > 0, err
+}
+
+// removes every result a user has in a guild; n is how many there were
+func (db *ScoreDB) DeleteUser(guild, user string) (n int, err error) {
+	res, err := db.file.Exec(`DELETE FROM scores WHERE guild_id = ? AND user_id = ?;`, guild, user)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := (*res).RowsAffected()
+	return int(rows), err
+}
+
 func (db *ScoreDB) Close() error {
 	return db.file.Close()
 }

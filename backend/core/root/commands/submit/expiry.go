@@ -7,7 +7,7 @@ import (
 )
 
 // how often the worker checks for expired prompts
-const EXPIRY_TICK = 5 * time.Second
+const EXPIRY_TICK = time.Second
 
 // new prompts are handed to the worker here
 var expiries = make(chan *promptState, 64)

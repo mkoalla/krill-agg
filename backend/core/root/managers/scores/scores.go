@@ -97,6 +97,21 @@ func (man *ScoreManager) SetMany(guild guildID, entries []Entry) error {
 	return man.db.UpsertMany(rows)
 }
 
+// how many results a user has in a guild
+func (man *ScoreManager) Count(guild guildID, id uid) (int, error) {
+	return man.db.CountUser(guild, id)
+}
+
+// removes a user's result for a day; false means there wasn't one
+func (man *ScoreManager) Drop(guild guildID, id uid, day int) (bool, error) {
+	return man.db.Delete(guild, id, day)
+}
+
+// removes every result a user has in a guild; returns how many there were
+func (man *ScoreManager) DropAll(guild guildID, id uid) (int, error) {
+	return man.db.DeleteUser(guild, id)
+}
+
 func (man *ScoreManager) Get(guild guildID, day int, id uid) (PlayerScore, bool, error) {
 	row, ok, err := man.db.Get(guild, id, day)
 	if err != nil || !ok {
