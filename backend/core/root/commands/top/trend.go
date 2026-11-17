@@ -100,26 +100,60 @@ func trendLink(path string) string {
 	return strings.TrimSuffix(path, ".webp") + ".link"
 }
 
-// one draw per card: whoever finds it missing draws it while the rest wait
-var trendLocks sync.Map // card path -> *sync.Mutex
+// one draw at a time per player in a guild, whatever the period: guild/user
+// -> a link to the reply carrying the draw underway ("" until it's sent)
+var (
+	drawMu sync.Mutex
+	draws  = map[string]string{}
+)
 
-func lockTrend(path string) (unlock func()) {
-	mu, _ := trendLocks.LoadOrStore(path, &sync.Mutex{})
-	mu.(*sync.Mutex).Lock()
-	return mu.(*sync.Mutex).Unlock
+// a draw is already underway for the player; link is its reply, if sent yet
+type drawingError struct{ link string }
+
+func (e *drawingError) Error() string { return "already generating" }
+
+// claims the player's draw, or says whose reply has it. done frees it;
+// publish notes the reply carrying it
+func claimDraw(guild, user string) (publish func(link string), done func(), err error) {
+	key := guild + "/" + user
+	drawMu.Lock()
+	defer drawMu.Unlock()
+	if link, ok := draws[key]; ok {
+		return nil, nil, &drawingError{link: link}
+	}
+	draws[key] = ""
+	publish = func(link string) {
+		drawMu.Lock()
+		draws[key] = link
+		drawMu.Unlock()
+	}
+	done = func() {
+		drawMu.Lock()
+		delete(draws, key)
+		drawMu.Unlock()
+	}
+	return publish, done, nil
 }
 
-// draws the card at path (see trendPath) unless it's already on disk,
-// calling onDraw first. the period's older cards and links are removed
-func cachedTrend(s *discordgo.Session, bcp *types.BotCommandPackage, path, guild, guildName, user, period string, games []scores.PlayerScore, onDraw func() error) error {
+// draws the card at path (see trendPath) unless it's already on disk. onDraw
+// goes first and returns a link to the reply that will carry it; if one of
+// the player's cards is already being drawn, nothing is and the error is a
+// *drawingError. the period's older cards and links are removed
+func cachedTrend(s *discordgo.Session, bcp *types.BotCommandPackage, path, guild, guildName, user, period string, games []scores.PlayerScore, onDraw func() (string, error)) error {
 	dir, name := filepath.Dir(path), filepath.Base(path)
-	defer lockTrend(path)()
 	if _, err := os.Stat(path); err == nil {
 		return nil
 	}
-	if err := onDraw(); err != nil {
+	publish, done, err := claimDraw(guild, user)
+	if err != nil {
 		return err
 	}
+	defer done()
+	link, err := onDraw()
+	if err != nil {
+		return err
+	}
+	publish(link)
 	if err := trendImage(s, bcp, dir, name, guild, guildName, user, period, games); err != nil {
 		return err
 	}
@@ -216,11 +250,24 @@ func attachTrend(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordg
 		return err
 	}
 	placed := false // the placeholder went out, so a failure has a message to edit
-	err = cachedTrend(s, bcp, path, guild, guildName, user, period, games, func() error {
-		_, err := send(imageEmbed("-# generating image...", ""), nil)
-		placed = err == nil
-		return err
+	err = cachedTrend(s, bcp, path, guild, guildName, user, period, games, func() (string, error) {
+		msg, err := send(imageEmbed("-# generating image...", ""), nil)
+		if err != nil {
+			return "", err
+		}
+		placed = true
+		return daily.JumpLink(guild, msg), nil
 	})
+	var drawing *drawingError
+	if errors.As(err, &drawing) {
+		// like /forcedaily: point at the draw underway instead of starting another
+		note := "-# Already generating"
+		if drawing.link != "" {
+			note += ": " + drawing.link
+		}
+		_, err := send(imageEmbed(note, ""), nil)
+		return err
+	}
 	if err != nil {
 		if !placed {
 			return err

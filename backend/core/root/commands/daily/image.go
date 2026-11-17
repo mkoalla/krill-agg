@@ -194,7 +194,7 @@ func (t ticket) done() {
 }
 
 // guild is the fallback for when discord leaves the message's own guild off
-func jumpLink(guild string, msg *discordgo.Message) string {
+func JumpLink(guild string, msg *discordgo.Message) string {
 	if msg.GuildID != "" {
 		guild = msg.GuildID
 	}
@@ -383,7 +383,7 @@ func withImage(s *discordgo.Session, post sender, bcp *types.BotCommandPackage, 
 		return nil, err
 	}
 	if t.lead != nil {
-		t.lead.publish(jumpLink(snap.Guild, msg))
+		t.lead.publish(JumpLink(snap.Guild, msg))
 	}
 	fail := func(reason error) (*discordgo.Message, error) {
 		_, errEdit := send(imageEmbed("-# couldn't produce image: "+reason.Error(), ""), nil)
@@ -448,5 +448,5 @@ func PostDaily(s *discordgo.Session, bcp *types.BotCommandPackage, channel strin
 	if msg == nil {
 		return "", err
 	}
-	return jumpLink(g, msg), err
+	return JumpLink(g, msg), err
 }

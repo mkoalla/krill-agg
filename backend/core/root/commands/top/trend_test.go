@@ -1,6 +1,7 @@
 package top
 
 import (
+	"errors"
 	"krill-agg/root/info/dailygen"
 	"krill-agg/root/managers/scores"
 	"krill-agg/root/types"
@@ -88,14 +89,61 @@ func TestCachedTrendReuses(t *testing.T) {
 	if err := os.WriteFile(path, []byte("card"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := cachedTrend(nil, bcp, path, "1", "Krill Club", "2", "week", g, func() error {
+	err := cachedTrend(nil, bcp, path, "1", "Krill Club", "2", "week", g, func() (string, error) {
 		t.Error("drew a card that was already on disk")
-		return nil
+		return "", nil
 	})
 	if err != nil {
 		t.Errorf("cachedTrend: %v", err)
 	}
 	if got := trendLink(path); got != strings.TrimSuffix(path, "webp")+"link" {
 		t.Errorf("trendLink = %q", got)
+	}
+}
+
+// a second draw for the same player (any period) is turned away with the
+// first's link; other players, and the same one once it's done, go ahead
+func TestClaimDraw(t *testing.T) {
+	publish, done, err := claimDraw("1", "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var drawing *drawingError
+	if _, _, err := claimDraw("1", "2"); !errors.As(err, &drawing) || drawing.link != "" {
+		t.Fatalf("second claim before the reply: %v", err)
+	}
+	publish("https://discord.com/channels/1/3/4")
+	if _, _, err := claimDraw("1", "2"); !errors.As(err, &drawing) || drawing.link != "https://discord.com/channels/1/3/4" {
+		t.Fatalf("second claim after the reply: %v", err)
+	}
+	_, other, err := claimDraw("1", "5")
+	if err != nil {
+		t.Fatalf("another player was turned away: %v", err)
+	}
+	other()
+	done()
+	if _, again, err := claimDraw("1", "2"); err != nil {
+		t.Fatalf("claim after done: %v", err)
+	} else {
+		again()
+	}
+}
+
+// a card missing from disk while the player's draw is underway isn't drawn
+func TestCachedTrendTurnsAwayADuplicate(t *testing.T) {
+	bcp := &types.BotCommandPackage{DataDir: t.TempDir()}
+	g := games(118, 300, 124, 400)
+	_, done, err := claimDraw("1", "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer done()
+	err = cachedTrend(nil, bcp, trendPath(bcp, "1", "2", "month", g), "1", "Krill Club", "2", "month", g, func() (string, error) {
+		t.Error("drew while another draw was underway")
+		return "", nil
+	})
+	var drawing *drawingError
+	if !errors.As(err, &drawing) {
+		t.Errorf("cachedTrend = %v, want a *drawingError", err)
 	}
 }
