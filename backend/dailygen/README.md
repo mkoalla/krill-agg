@@ -59,7 +59,7 @@ uv run python -m dailygen.server --data-dir ../../data/dailygen
 
 `POST /render` with `{"guild", "title", "day", "images", "mean"?, "dist"?,
 "percentile"?, "users"?: [{"score"}], "user_size"?, "max_push"?, "icon"?,
-"sample"?, "population"?}` writes `<data-dir>/<guild>/<day>/daily_<day>.webp`
+"sample"?, "population"?, "deadline"?}` writes `<data-dir>/<guild>/<day>/daily_<day>.webp`
 (overwriting; `data/dailygen/` on the shared mount) and answers
 `200 {"path": "<guild>/<day>/daily_<day>.webp"}`, or `400`/`500` with `{"error"}`.
 

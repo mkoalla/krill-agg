@@ -1,6 +1,7 @@
 package daily
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"krill-agg/root/info/dailygen"
@@ -214,8 +215,8 @@ func getGuild(s *discordgo.Session, guild string) *discordgo.Guild {
 	return &discordgo.Guild{ID: guild}
 }
 
-// "better than x% of …" for a day that's over
-const PAST_POPULATION = "that day's players"
+// how long the bot waits on dailygen for one card
+const RENDER_TIMEOUT = 5 * time.Second
 
 // fetches avatars and has dailygen render the card; returns the card's path on
 // disk. a day nobody played still gets a card (no average), as does one
@@ -249,9 +250,6 @@ func GenerateImage(s *discordgo.Session, bcp *types.BotCommandPackage, snap *Sna
 			req.Percentile = &pct
 		}
 	}
-	if snap.Day < krillion.Today() {
-		req.Population = PAST_POPULATION
-	}
 
 	g := getGuild(s, snap.Guild)
 	req.Title = g.Name
@@ -263,7 +261,13 @@ func GenerateImage(s *discordgo.Session, bcp *types.BotCommandPackage, snap *Sna
 	defer os.RemoveAll(images) //nolint // only needed while drawing
 	req.Images = filepath.Base(images)
 	req.Icon = icon
-	path, err := dailygen.Render(req)
+	// the budget is just for dailygen; the discord lookups above keep their own
+	ctx, cancel := context.WithTimeout(context.Background(), RENDER_TIMEOUT)
+	defer cancel()
+	path, err := dailygen.Render(ctx, req)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "", fmt.Errorf("the renderer took longer than %v", RENDER_TIMEOUT)
+	}
 	if err != nil {
 		return "", err
 	}

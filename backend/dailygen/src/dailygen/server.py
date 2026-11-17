@@ -1,11 +1,13 @@
 """HTTP front for the card renderer: the bot POSTs /render and gets back where
-the png landed under the shared data dir.
+the card (lossless webp) landed under the shared data dir.
 
 POST /render {"guild", "title", "day", "images", "mean"?, "dist"?, "percentile"?,
               "users"?: [{"score"}], "user_size"?, "max_push"?, "icon"?, "sample"?,
-              "population"?}
+              "population"?, "deadline"?}
   -> 200 {"path": "<guild>/<day>/daily_<day>.webp"}   (relative to the data dir)
   -> 400/500 {"error": "..."}
+  -> 504 {"error": ...} when "deadline" (unix ms) passed before the card was
+     written: the bot gave up waiting, so nothing is drawn or saved
 Avatars are implicit: users[i] uses <guild>/<day>/<images>/<i>.png when it
 exists. "icon" names the guild's icon in that same folder (e.g. "guild.png").
 "images" is a required bare folder name: the bot makes it as a scratch dir for
@@ -24,6 +26,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -94,6 +97,20 @@ def build(body: dict, data_dir: Path) -> tuple[CardData, Path]:
     return data, card_dir / f"daily_{day}.webp"
 
 
+def parse_deadline(body: dict) -> float | None:
+    """the bot's optional "deadline": unix milliseconds it stops waiting at"""
+    raw = body.get("deadline")
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        raise BadRequest("deadline must be unix milliseconds")
+    return raw / 1000
+
+
+def past(deadline: float | None) -> bool:
+    return deadline is not None and time.time() > deadline
+
+
 def write_atomic(path: Path, content: bytes) -> None:
     """readers never see a half-written card"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -136,11 +153,21 @@ def make_handler(data_dir: Path):
                 if not isinstance(body, dict):
                     raise BadRequest("body must be a json object")
                 data, out = build(body, data_dir)
+                deadline = parse_deadline(body)
             except (BadRequest, json.JSONDecodeError, ValueError) as err:
                 self._reply(400, {"error": str(err)})
                 return
+            # the bot has stopped waiting past its deadline: a card drawn or
+            # written after it would never be posted, so skip both
+            if past(deadline):
+                self._reply(504, {"error": "past the bot's deadline"})
+                return
             try:
-                write_atomic(out, render_webp(data))
+                card = render_webp(data)
+                if past(deadline):
+                    self._reply(504, {"error": "past the bot's deadline"})
+                    return
+                write_atomic(out, card)
             except Exception as err:  # the bot shows this, so keep it short
                 self._reply(500, {"error": f"render failed: {err}"})
                 return

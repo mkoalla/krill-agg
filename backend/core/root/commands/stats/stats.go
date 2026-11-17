@@ -87,10 +87,10 @@ func Questions(bcp *types.BotCommandPackage, day int) *discordgo.MessageEmbed {
 	return QuestionsEmbed(qs)
 }
 
-// draws a finished day's card under its board, editing the reply that was
-// just sent. set by the daily package, which owns the cards (and imports
-// this one, so it can't be called directly)
-var PastCard func(s *discordgo.Session, i *discordgo.InteractionCreate, bcp *types.BotCommandPackage, day int, entries []scores.Entry, embeds []*discordgo.MessageEmbed) error
+// answers /stats for a finished day with that day's full report (the daily
+// post minus the winners). set by the daily package, which owns reports and
+// cards (and imports this one, so it can't be called directly)
+var PastReport func(s *discordgo.Session, i *discordgo.InteractionCreate, bcp *types.BotCommandPackage, day int, entries []scores.Entry) error
 
 // map is already reference-like but just for continuity
 func Register(bcp *types.BotCommandPackage) {
@@ -122,11 +122,16 @@ func Register(bcp *types.BotCommandPackage) {
 				return err
 			}
 
+			// a day that's over gets its whole report; today's percentiles and
+			// card come with the daily post
+			if day >= 1 && day < krillion.Today() && PastReport != nil {
+				return PastReport(s, i, bcp, day, entries)
+			}
 			embeds := []*discordgo.MessageEmbed{Board(day, entries)}
 			if q := Questions(bcp, day); q != nil {
 				embeds = append(embeds, q)
 			}
-			if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
 					// discord always renders content above embeds
@@ -134,14 +139,7 @@ func Register(bcp *types.BotCommandPackage) {
 					Embeds:          embeds,
 					AllowedMentions: &discordgo.MessageAllowedMentions{},
 				},
-			}); err != nil {
-				return err
-			}
-			// a day that's over gets its card; today's comes with the daily report
-			if day >= 1 && day < krillion.Today() && PastCard != nil {
-				return PastCard(s, i, bcp, day, entries, embeds)
-			}
-			return nil
+			})
 		},
 	}
 }

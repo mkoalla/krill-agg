@@ -136,3 +136,19 @@ def test_population_field(tmp_path):
     # capped at ~40 chars
     data, _ = build(body(population="x" * 100), tmp_path)
     assert len(data.population) <= 40
+
+
+def test_deadline(server):
+    import time
+
+    url, data = server
+    # already past: refused, nothing written
+    status, resp = post(url, body(deadline=int((time.time() - 1) * 1000)))
+    assert status == 504 and resp["error"]
+    assert not any(data.rglob("daily_*"))
+    # plenty of time: drawn as usual
+    status, _ = post(url, body(deadline=int((time.time() + 60) * 1000)))
+    assert status == 200
+    # not a number
+    status, _ = post(url, body(deadline="soon"))
+    assert status == 400

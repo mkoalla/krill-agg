@@ -8,6 +8,7 @@ import (
 	"krill-agg/root/info/krillionapi"
 	"krill-agg/root/krillion"
 	"krill-agg/root/managers/authorize"
+	"krill-agg/root/managers/distributions"
 	"krill-agg/root/managers/scores"
 	"krill-agg/root/types"
 	"math"
@@ -46,10 +47,19 @@ func percentileLine(uid string, percent float64) string {
 	return fmt.Sprintf("`~%02d%%` - <@%s>", int(math.Floor(percent)), uid)
 }
 
+const NO_DIST = "Krillion has no score distribution for this day."
+
 // percentiles from one distribution lookup, same order as the board
-// (sorted by score, so also by percentile)
-func Percentiles(stats krillionapi.Stats, entries []scores.Entry) string {
-	lines := []string{fmt.Sprintf("Players today: `%s`", commas(stats.Sample))}
+// (sorted by score, so also by percentile). past days count "that day"
+func Percentiles(day int, stats krillionapi.Stats, entries []scores.Entry) string {
+	if !distributions.HasDist(stats) {
+		return NO_DIST
+	}
+	when := "today"
+	if day < krillion.Today() {
+		when = "that day"
+	}
+	lines := []string{fmt.Sprintf("Players %s: `%s`", when, commas(stats.Sample))}
 	if len(entries) > 0 {
 		lines = append(lines, "")
 	}
@@ -101,7 +111,7 @@ func Content(snap *Snapshot, winners bool) string {
 func Combined(day int, entries []scores.Entry, dist krillionapi.Stats) *discordgo.MessageEmbed {
 	embed := stats.Board(day, entries)
 	embed.Title = "Scores"
-	embed.Description += "\n### Percentiles\n" + Percentiles(dist, entries)
+	embed.Description += "\n### Percentiles\n" + Percentiles(day, dist, entries)
 	return embed
 }
 
@@ -145,26 +155,37 @@ func Report(bcp *types.BotCommandPackage, guild string, day int) ([]*discordgo.M
 	return embeds, snap, nil
 }
 
-// a past day's card for /stats: the board it already sent stays, the card
-// joins it as a last embed. drawn once per day, then reused through the
-// link file kept beside it (re-uploaded if discord's link has expired); no
-// cooldown. krillion's distribution for the day comes from distributions.db
-// (none saved: a flat line)
-func pastCard(s *discordgo.Session, i *discordgo.InteractionCreate, bcp *types.BotCommandPackage, day int, entries []scores.Entry, embeds []*discordgo.MessageEmbed) error {
+// /stats for a finished day: that day's daily report, minus the winners.
+// the distribution comes from distributions.db (none saved: no percentiles
+// and a flat line) and the questions from questions.db. the card is drawn
+// once per day, then reused through the link file kept beside it
+// (re-uploaded if discord's link has expired); no cooldown
+func pastReport(s *discordgo.Session, i *discordgo.InteractionCreate, bcp *types.BotCommandPackage, day int, entries []scores.Entry) error {
 	dist, _ := bcp.Distributions.Get(day)
 	snap := &Snapshot{Guild: i.GuildID, Day: day, Entries: entries, Dist: dist}
-	reply := replySender(s, i)
-	// keep /stats's own text above the embeds, not the daily heading
-	post := func(_ string, embeds []*discordgo.MessageEmbed, files []*discordgo.File) (*discordgo.Message, error) {
-		return reply(stats.Footer(day), embeds, files)
+	embeds := []*discordgo.MessageEmbed{Combined(day, entries, dist)}
+	if q := stats.Questions(bcp, day); q != nil {
+		embeds = append(embeds, q)
 	}
-	_, err := withImage(s, post, bcp, snap, embeds, claimPast(filepath.Join(bcp.DataDir, dailygen.DIR, i.GuildID, strconv.Itoa(day)), day), ImageOptions{})
+	// the board goes out now; the card follows as an edit
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content:         Content(snap, false),
+			Embeds:          embeds,
+			AllowedMentions: &discordgo.MessageAllowedMentions{},
+		},
+	}); err != nil {
+		return err
+	}
+	t := claimPast(filepath.Join(bcp.DataDir, dailygen.DIR, i.GuildID, strconv.Itoa(day)), day)
+	_, err := withImage(s, replySender(s, i), bcp, snap, embeds, t, ImageOptions{})
 	return err
 }
 
 // map is already reference-like but just for continuity
 func Register(bcp *types.BotCommandPackage) {
-	stats.PastCard = pastCard
+	stats.PastReport = pastReport
 	(*bcp.Handles)["forcedaily"] = CommandInfo{
 		DGInfo: &discordgo.ApplicationCommand{
 			Name:        "forcedaily",

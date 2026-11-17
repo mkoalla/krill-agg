@@ -2,6 +2,7 @@ package dailygen
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,8 +40,10 @@ type Request struct {
 	Percentile *float64  `json:"percentile"`
 	Users      []User    `json:"users"`
 	Icon       string    `json:"icon,omitempty"`
-	Sample     int       `json:"sample"`               // krillion's player count that day
-	Population string    `json:"population,omitempty"` // "better than x% of <this>"; default today's players
+	Sample     int       `json:"sample"` // krillion's player count that day
+	// unix ms the bot stops waiting at (Render fills it from ctx). a card
+	// finished after it is thrown away, not written: nobody will post it
+	Deadline int64 `json:"deadline,omitempty"`
 	// avatars a clashing stack grows before wrapping back down (modulo)
 	MaxPush int `json:"max_push"`
 }
@@ -54,12 +57,20 @@ type response struct {
 }
 
 // renders the card; path is relative to DIR
-func Render(req Request) (path string, err error) {
+func Render(ctx context.Context, req Request) (path string, err error) {
+	if deadline, ok := ctx.Deadline(); ok {
+		req.Deadline = deadline.UnixMilli()
+	}
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return "", err
 	}
-	resp, err := client.Post(baseURL+"/render", "application/json", bytes.NewReader(payload))
+	post, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/render", bytes.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+	post.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(post)
 	if err != nil {
 		return "", err
 	}
