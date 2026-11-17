@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bwmarrin/discordgo"
 )
 
 func board() []Row {
@@ -89,5 +91,33 @@ func TestBoardTitle(t *testing.T) {
 	}
 	if got := boardTitle("Your Ranks", leaderboard.ALLTIME, "Krill Club"); got != "🏆 Your Ranks (All-time) in Krill Club" {
 		t.Errorf("boardTitle() = %q", got)
+	}
+}
+
+func TestOptionReadsUsersAndStrings(t *testing.T) {
+	i := &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
+		Type: discordgo.InteractionApplicationCommand,
+		Data: discordgo.ApplicationCommandInteractionData{Options: []*discordgo.ApplicationCommandInteractionDataOption{
+			{Name: "user", Type: discordgo.ApplicationCommandOptionUser, Value: "80351110224678912"},
+			{Name: "since", Type: discordgo.ApplicationCommandOptionString, Value: "week"},
+		}},
+	}}
+	if got := option(i, "user", "me"); got != "80351110224678912" {
+		t.Errorf("user option = %q", got)
+	}
+	if got := option(i, "since", "all"); got != "week" {
+		t.Errorf("since option = %q", got)
+	}
+	if got := option(i, "type", "all"); got != "all" {
+		t.Errorf("missing option = %q, want the fallback", got)
+	}
+}
+
+func TestNotRanked(t *testing.T) {
+	if got := notRanked(true, "1", "You haven't played yet!", "<@%s> hasn't played yet!"); got != "You haven't played yet!" {
+		t.Errorf("self = %q", got)
+	}
+	if got := notRanked(false, "1", "You haven't played yet!", "<@%s> hasn't played yet!"); got != "<@1> hasn't played yet!" {
+		t.Errorf("other = %q", got)
 	}
 }

@@ -20,8 +20,7 @@ type Row = leaderboard.Row
 const PER_PAGE = 10
 
 const (
-	ALL  = "all"
-	SELF = "self"
+	ALL = "all"
 )
 
 // how each board is titled and its value column shown
@@ -153,16 +152,42 @@ func boardPages(s *discordgo.Session, bcp *types.BotCommandPackage, guild, name,
 	return book
 }
 
-const BLACKLISTED = "You're left off this server's leaderboards."
+// what /topu says when there's nothing to rank, about the caller or someone else
+func notRanked(self bool, user, you, them string) string {
+	if self {
+		return you
+	}
+	return fmt.Sprintf(them, user)
+}
+
+// the name /topu titles someone by: their server nickname, else their own
+func displayName(s *discordgo.Session, guild, user string) string {
+	if m, err := s.State.Member(guild, user); err == nil && m.User != nil {
+		return m.DisplayName()
+	}
+	if m, err := s.GuildMember(guild, user); err == nil && m.User != nil {
+		return m.DisplayName()
+	}
+	if u, err := s.User(user); err == nil {
+		return u.DisplayName()
+	}
+	return "Someone"
+}
 
 // the caller's rank on every board
-func selfPage(s *discordgo.Session, bcp *types.BotCommandPackage, guild, name, user, period string) pages.Page {
+// one player's rank on every board (/topu); self says "you"
+func userPage(s *discordgo.Session, bcp *types.BotCommandPackage, guild, name, user, period string, self bool) pages.Page {
 	return func(at pages.Info) (*discordgo.MessageEmbed, error) {
-		title := boardTitle("Your Ranks", period, name)
+		who := "Your Ranks"
+		if !self {
+			who = displayName(s, guild, user) + "'s Ranks"
+		}
+		title := boardTitle(who, period, name)
 		if banned, err := bcp.Leaderboard.IsBlacklisted(guild, user); err != nil {
 			return nil, err
 		} else if banned {
-			return pages.Embed(title, avatarURL(s, guild, user), BLACKLISTED, at), nil
+			body := notRanked(self, user, "You're left off this server's leaderboards.", "<@%s> is left off this server's leaderboards.")
+			return pages.Embed(title, avatarURL(s, guild, user), body, at), nil
 		}
 		var lines []string
 		for _, board := range leaderboard.BOARDS {
@@ -174,7 +199,7 @@ func selfPage(s *discordgo.Session, bcp *types.BotCommandPackage, guild, name, u
 				lines = append(lines, line)
 			}
 		}
-		body := "You haven't played yet!"
+		body := notRanked(self, user, "You haven't played yet!", "<@%s> hasn't played yet!")
 		if len(lines) > 0 {
 			body = strings.Join(lines, "\n")
 		}
@@ -199,9 +224,6 @@ func selfLine(info boardInfo, rows []Row, user string) (string, bool) {
 func book(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordgo.InteractionCreate, choice, period string) ([]pages.Page, error) {
 	g := i.GuildID
 	name := guildName(s, g)
-	if choice == SELF {
-		return []pages.Page{selfPage(s, bcp, g, name, i.Member.User.ID, period)}, nil
-	}
 	players, err := bcp.Leaderboard.Players(g, period)
 	if err != nil {
 		return nil, err
@@ -217,11 +239,12 @@ func book(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordgo.Inter
 	return all, nil
 }
 
-// a string option's value, or fallback when it wasn't given
+// a string or user option's value (a user's is their id), or fallback when
+// it wasn't given. read raw: discordgo's StringValue panics on user options
 func option(i *discordgo.InteractionCreate, name, fallback string) string {
 	for _, opt := range i.ApplicationCommandData().Options {
-		if opt.Name == name {
-			return opt.StringValue()
+		if v, ok := opt.Value.(string); ok && opt.Name == name {
+			return v
 		}
 	}
 	return fallback
@@ -243,7 +266,6 @@ func Register(bcp *types.BotCommandPackage) {
 	for _, board := range leaderboard.BOARDS {
 		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: board, Value: board})
 	}
-	choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: "self", Value: SELF})
 	periods := make([]*discordgo.ApplicationCommandOptionChoice, len(leaderboard.PERIODS))
 	for j, p := range leaderboard.PERIODS {
 		periods[j] = &discordgo.ApplicationCommandOptionChoice{Name: leaderboard.PERIOD_LABELS[p], Value: p}
@@ -268,6 +290,29 @@ func Register(bcp *types.BotCommandPackage) {
 		Metadata: types.CommandMetadata{MinTrustLevel: authorize.DEFAULT},
 		Callback: func(s *discordgo.Session, i *discordgo.InteractionCreate) error {
 			return open(s, bcp, i, option(i, "type", ALL), option(i, "since", leaderboard.ALLTIME))
+		},
+	}
+	(*bcp.Handles)["topu"] = CommandInfo{
+		DGInfo: &discordgo.ApplicationCommand{
+			Name:        "topu",
+			Description: "someone's rank on every leaderboard in this server",
+			Options: []*discordgo.ApplicationCommandOption{{
+				Type:        discordgo.ApplicationCommandOptionUser,
+				Name:        "user",
+				Description: "whose ranks (default: yours)",
+			}, {
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "since",
+				Description: "how far back to count (default: all-time)",
+				Choices:     periods,
+			}},
+		},
+		Metadata: types.CommandMetadata{MinTrustLevel: authorize.DEFAULT},
+		Callback: func(s *discordgo.Session, i *discordgo.InteractionCreate) error {
+			caller := i.Member.User.ID
+			user := option(i, "user", caller)
+			page := userPage(s, bcp, i.GuildID, guildName(s, i.GuildID), user, option(i, "since", leaderboard.ALLTIME), user == caller)
+			return bcp.Pages.Open(s, i, "topu", []pages.Page{page})
 		},
 	}
 	(*bcp.Handles)["refetchtop"] = CommandInfo{
