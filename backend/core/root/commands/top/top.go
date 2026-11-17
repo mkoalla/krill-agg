@@ -3,6 +3,7 @@ package top
 import (
 	"fmt"
 	"krill-agg/root/managers/authorize"
+	"krill-agg/root/managers/confirm"
 	"krill-agg/root/managers/leaderboard"
 	"krill-agg/root/managers/pages"
 	"krill-agg/root/types"
@@ -328,6 +329,43 @@ func Register(bcp *types.BotCommandPackage) {
 			return attachTrend(s, bcp, i, ranks, name, user, period)
 		},
 	}
+	(*bcp.Handles)["mg-cleartopu"] = CommandInfo{
+		DGInfo: &discordgo.ApplicationCommand{
+			Name:        "mg-cleartopu",
+			Description: "delete cached /topu cards so they're drawn fresh",
+			Options: []*discordgo.ApplicationCommandOption{{
+				Type:        discordgo.ApplicationCommandOptionUser,
+				Name:        "user",
+				Description: "whose cards (default: everyone's in this server)",
+			}},
+		},
+		Metadata: types.CommandMetadata{MinTrustLevel: authorize.MANAGE},
+		Callback: func(s *discordgo.Session, i *discordgo.InteractionCreate) error {
+			if user := option(i, "user", ""); user != "" {
+				text, err := clearTopu(bcp, i.GuildID, []string{user}, fmt.Sprintf("<@%s>", user))
+				if err != nil {
+					return err
+				}
+				return confirm.Reply(s, i, text)
+			}
+			// everyone's: ask first
+			return confirm.Open(s, i, confirm.Prompt{
+				Flow: CLEAR_ALL,
+				Question: func(int) string {
+					return "Are you sure you want to clear every cached /topu card in this server?"
+				},
+				Cancelled: "Cancelled, nothing was cleared.",
+				TimedOut:  "Time's up, nothing was cleared.",
+				Confirm: func() (string, error) {
+					text, err := clearTopu(bcp, i.GuildID, nil, "this server")
+					if err != nil {
+						return "Couldn't clear them, try again later.", err
+					}
+					return text, nil
+				},
+			})
+		},
+	}
 	(*bcp.Handles)["mg-refetchtop"] = CommandInfo{
 		DGInfo: &discordgo.ApplicationCommand{
 			Name:        "mg-refetchtop",
@@ -341,4 +379,28 @@ func Register(bcp *types.BotCommandPackage) {
 			return open(s, bcp, i, ALL, leaderboard.ALLTIME)
 		},
 	}
+}
+
+// server-wide /mg-cleartopu: one Confirm click within the default 30s
+var CLEAR_ALL = confirm.Flow{Steps: 1, Timeout: confirm.DEFAULT_TIMEOUT}
+
+// clears users' cards (everyone's if none) and says how it went; whose is
+// how the reply names them. replies are embeds, so mentions never ping
+func clearTopu(bcp *types.BotCommandPackage, guild string, users []string, whose string) (string, error) {
+	cards, busy, err := clearTrends(bcp, guild, users)
+	if err != nil {
+		return "", err
+	}
+	text := fmt.Sprintf("Cleared %d cached /topu card%s for %s.", cards, plural(cards), whose)
+	for _, b := range busy {
+		text += fmt.Sprintf("\n-# Skipped <@%s>: a card is being drawn right now.", b)
+	}
+	return text, nil
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }

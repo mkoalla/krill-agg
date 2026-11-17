@@ -90,9 +90,48 @@ func trendName(period string, games []scores.PlayerScore) string {
 	return fmt.Sprintf("trend_%s_%d-%d.webp", period, games[0].Day, games[len(games)-1].Day)
 }
 
+// a guild's folder of players' cards, each player in their own folder
+func trendsDir(bcp *types.BotCommandPackage, guild string) string {
+	return filepath.Join(bcp.DataDir, dailygen.DIR, guild, "users")
+}
+
 // where a player's card for these games lives
 func trendPath(bcp *types.BotCommandPackage, guild, user, period string, games []scores.PlayerScore) string {
-	return filepath.Join(bcp.DataDir, dailygen.DIR, guild, "users", user, trendName(period, games))
+	return filepath.Join(trendsDir(bcp, guild), user, trendName(period, games))
+}
+
+// removes players' cached cards and links in a guild (every player's when
+// users is empty), so their next /topu draws fresh. a player whose card is
+// being drawn right now is left alone (busy); cards is how many were removed
+func clearTrends(bcp *types.BotCommandPackage, guild string, users []string) (cards int, busy []string, err error) {
+	dir := trendsDir(bcp, guild)
+	if len(users) == 0 {
+		entries, err := os.ReadDir(dir)
+		if err != nil && !os.IsNotExist(err) {
+			return 0, nil, err
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				users = append(users, e.Name())
+			}
+		}
+	}
+	for _, user := range users {
+		// held while removing, so no draw starts writing into the folder
+		_, done, claimErr := claimDraw(guild, user)
+		if claimErr != nil {
+			busy = append(busy, user)
+			continue
+		}
+		found, _ := filepath.Glob(filepath.Join(dir, user, "trend_*.webp"))
+		err = os.RemoveAll(filepath.Join(dir, user))
+		done()
+		if err != nil {
+			return cards, busy, err
+		}
+		cards += len(found)
+	}
+	return cards, busy, nil
 }
 
 // next to a card: the discord link it was last posted at

@@ -18,6 +18,7 @@ import (
 	"krill-agg/root/commands/version"
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/managers/components"
+	"krill-agg/root/managers/confirm"
 	"krill-agg/root/managers/distributions"
 	"krill-agg/root/managers/krills"
 	"krill-agg/root/managers/leaderboard"
@@ -87,6 +88,8 @@ func Register(reqs RegisterReqs) *types.BotCommandPackage {
 		handle, ok := (*bcp.Handles)[command]
 		return ok && bcp.Auth.CanUse(user, handle.Metadata.MinTrustLevel)
 	})
+	// as do confirm prompts' Confirm/Cancel clicks
+	confirm.Register(bcp.Components.AddPrefixHandler)
 	for _, reg := range registers {
 		reg(&bcp)
 	}

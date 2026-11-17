@@ -147,3 +147,47 @@ func TestCachedTrendTurnsAwayADuplicate(t *testing.T) {
 		t.Errorf("cachedTrend = %v, want a *drawingError", err)
 	}
 }
+
+// clears one player's folder or every player's, skipping one mid-draw
+func TestClearTrends(t *testing.T) {
+	bcp := &types.BotCommandPackage{DataDir: t.TempDir()}
+	card := func(user, name string) {
+		path := filepath.Join(trendsDir(bcp, "1"), user, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	card("a", "trend_week_1-3.webp")
+	card("a", "trend_week_1-3.link")
+	card("a", "trend_all_1-9.webp")
+	card("b", "trend_week_2-4.webp")
+	card("c", "trend_week_2-4.webp")
+
+	if n, busy, err := clearTrends(bcp, "1", []string{"a"}); err != nil || n != 2 || len(busy) != 0 {
+		t.Fatalf("clear a = %d %v %v", n, busy, err)
+	}
+	if _, err := os.Stat(filepath.Join(trendsDir(bcp, "1"), "a")); !os.IsNotExist(err) {
+		t.Errorf("a's folder still there: %v", err)
+	}
+
+	_, done, err := claimDraw("1", "c") // c's card is being drawn
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, busy, err := clearTrends(bcp, "1", nil)
+	done()
+	if err != nil || n != 1 || len(busy) != 1 || busy[0] != "c" {
+		t.Fatalf("clear all = %d %v %v", n, busy, err)
+	}
+	if _, err := os.Stat(filepath.Join(trendsDir(bcp, "1"), "c", "trend_week_2-4.webp")); err != nil {
+		t.Errorf("c's card was removed mid-draw: %v", err)
+	}
+
+	// a guild nobody has cards in yet
+	if n, busy, err := clearTrends(bcp, "2", nil); err != nil || n != 0 || len(busy) != 0 {
+		t.Errorf("empty guild = %d %v %v", n, busy, err)
+	}
+}
