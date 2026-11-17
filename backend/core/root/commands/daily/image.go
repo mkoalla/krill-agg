@@ -113,12 +113,8 @@ func linkAlive(url string) bool {
 // (draw it). outside the one-render-per-guild claim, which is today's. a
 // finished day's card doesn't change, so it's drawn once and only re-uploaded
 func claimPast(dir string, day int) *ticket {
-	linkPath := filepath.Join(dir, LINK_FILE)
-	if raw, err := os.ReadFile(linkPath); err == nil {
-		url := strings.TrimSpace(string(raw))
-		if info, err := os.Stat(linkPath); err == nil && url != "" && linkAlive(url) {
-			return &ticket{cached: &cachedImage{day: day, at: info.ModTime(), url: url}}
-		}
+	if url, at, ok := ReadLink(filepath.Join(dir, LINK_FILE)); ok {
+		return &ticket{cached: &cachedImage{day: day, at: at, url: url}}
 	}
 	t := &ticket{past: true, dir: dir}
 	card := filepath.Join(dir, fmt.Sprintf("daily_%d.webp", day))
@@ -128,9 +124,24 @@ func claimPast(dir string, day int) *ticket {
 	return t
 }
 
-// notes where a past day's card now lives, replacing the old link
-func writeLink(dir, url string) error {
-	tmp, err := os.CreateTemp(dir, ".link-")
+// the discord link a card was last posted at, saved in the file at path, and
+// when it was saved. ok only if there is one and it still works
+func ReadLink(path string) (url string, at time.Time, ok bool) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", time.Time{}, false
+	}
+	url = strings.TrimSpace(string(raw))
+	info, err := os.Stat(path)
+	if err != nil || url == "" || !linkAlive(url) {
+		return "", time.Time{}, false
+	}
+	return url, info.ModTime(), true
+}
+
+// notes where a card now lives in the file at path, replacing the old link
+func WriteLink(path, url string) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".link-")
 	if err != nil {
 		return err
 	}
@@ -143,7 +154,7 @@ func writeLink(dir, url string) error {
 		os.Remove(tmp.Name()) //nolint
 		return err
 	}
-	return os.Rename(tmp.Name(), filepath.Join(dir, LINK_FILE))
+	return os.Rename(tmp.Name(), path)
 }
 
 // one render per guild at a time. a cache hit wins (unless fresh); otherwise
@@ -192,7 +203,7 @@ func jumpLink(guild string, msg *discordgo.Message) string {
 
 // the cdn url discord gave the uploaded card. the embed's image is rewritten
 // from attachment:// to it; the attachment list is the fallback
-func postedURL(msg *discordgo.Message) string {
+func PostedURL(msg *discordgo.Message) string {
 	for _, e := range msg.Embeds {
 		if e.Image != nil && strings.HasPrefix(e.Image.URL, "http") {
 			return e.Image.URL
@@ -396,12 +407,12 @@ func withImage(s *discordgo.Session, post sender, bcp *types.BotCommandPackage, 
 	if err != nil {
 		return fail(err)
 	}
-	url := postedURL(final)
+	url := PostedURL(final)
 	if url == "" {
 		return final, errors.New("daily image: posted, but discord returned no url to reuse")
 	}
 	if t.past {
-		if err := writeLink(t.dir, url); err != nil {
+		if err := WriteLink(filepath.Join(t.dir, LINK_FILE), url); err != nil {
 			return final, fmt.Errorf("daily image: saving its link: %v", err)
 		}
 		return final, nil

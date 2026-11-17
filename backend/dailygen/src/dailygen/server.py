@@ -17,9 +17,11 @@ it, never create or delete it ourselves.
 played. "dist" is krillion's 20 bucket counts; null, [], or all-zero when
 there's no distribution that day. "population" overrides the "OF ..." footer
 wording (default "today's players").
-POST /trend {"guild", "user", "title", "guild_name", "images", "points",
+POST /trend {"guild", "user", "name", "title", "guild_name", "images", "points",
              "ma"?, "window"?, "rank"?, "deadline"?}
-  -> 200 {"path": "<guild>/users/<user>/trend.webp"}, drawn anew every time
+  -> 200 {"path": "<guild>/users/<user>/<name>"}, overwriting
+"name" is the card's file name (a bare *.webp): the bot names cards by what
+they show and only asks for one it doesn't already have.
 One player's games over a period (/topu): "points" is [{"day", "score"}] per
 game, "ma" [{"day", "value"}] the moving average the bot worked out over a
 "window" (e.g. "1-WEEK"), "rank" their place on the guild's best-score board.
@@ -114,6 +116,9 @@ def build_trend(body: dict, data_dir: Path) -> tuple[trend.TrendData, Path]:
     images_name = str(body.get("images", ""))
     if not FILE_NAME.match(images_name):
         raise BadRequest("images must be a folder name")
+    name = str(body.get("name", ""))
+    if not FILE_NAME.match(name) or not name.endswith(".webp"):
+        raise BadRequest("name must be a .webp file name")
     try:
         points = sorted((int(p["day"]), float(p["score"])) for p in body["points"])
         ma = sorted((int(p["day"]), float(p["value"])) for p in body.get("ma") or [])
@@ -132,7 +137,7 @@ def build_trend(body: dict, data_dir: Path) -> tuple[trend.TrendData, Path]:
         rank=rank,
         avatar=str(user_dir / images_name / "0.png"),
     )
-    return data, user_dir / "trend.webp"
+    return data, user_dir / name
 
 
 # each card's endpoint: how to read its request and draw it

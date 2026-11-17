@@ -115,11 +115,11 @@ func TestPostedURL(t *testing.T) {
 		Embeds:      []*discordgo.MessageEmbed{{Description: "board"}, {Image: &discordgo.MessageEmbedImage{URL: "https://cdn/e.png"}}},
 		Attachments: []*discordgo.MessageAttachment{{URL: "https://cdn/a.png"}},
 	}
-	if got := postedURL(msg); got != "https://cdn/e.png" {
+	if got := PostedURL(msg); got != "https://cdn/e.png" {
 		t.Errorf("got %s, want the embed's url", got)
 	}
 	msg.Embeds = nil
-	if got := postedURL(msg); got != "https://cdn/a.png" {
+	if got := PostedURL(msg); got != "https://cdn/a.png" {
 		t.Errorf("got %s, want the attachment's url", got)
 	}
 }
@@ -145,14 +145,14 @@ func TestClaimPast(t *testing.T) {
 	if err := os.WriteFile(card, []byte("webp"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeLink(dir, live.URL+"/gone.png"); err != nil {
+	if err := WriteLink(filepath.Join(dir, LINK_FILE), live.URL+"/gone.png"); err != nil {
 		t.Fatal(err)
 	}
 	if tk := claimPast(dir, 100); tk.cached != nil || tk.card != card {
 		t.Fatalf("dead link: %+v, want a re-upload of %s", tk, card)
 	}
 	// a working link is reused as-is
-	if err := writeLink(dir, live.URL+"/ok.png"); err != nil {
+	if err := WriteLink(filepath.Join(dir, LINK_FILE), live.URL+"/ok.png"); err != nil {
 		t.Fatal(err)
 	}
 	tk := claimPast(dir, 100)

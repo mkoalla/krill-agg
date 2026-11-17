@@ -61,7 +61,7 @@ def test_no_rank_no_rank_line():
 
 
 def trend_body(**over):
-    b = {"guild": "123", "user": "456", "title": "krillmaster", "guild_name": "Krill Club", "images": "scratch",
+    b = {"guild": "123", "user": "456", "name": "trend_week_1-3.webp", "title": "krillmaster", "guild_name": "Krill Club", "images": "scratch",
          "points": [{"day": 3, "score": 400}, {"day": 1, "score": 300}], "ma": [{"day": 1, "value": 300}],
          "window": "3-DAY", "rank": 1}
     b.update(over)
@@ -74,15 +74,15 @@ def test_trend_writes_and_overwrites(server):  # noqa: F811
     images.mkdir(parents=True)
     (images / "0.png").write_bytes(a_red_square())
     status, resp = post(url, trend_body(), "/trend")
-    assert status == 200 and resp == {"path": "123/users/456/trend.webp"}
-    out = root / "123" / "users" / "456" / "trend.webp"
+    assert status == 200 and resp == {"path": "123/users/456/trend_week_1-3.webp"}
+    out = root / "123" / "users" / "456" / "trend_week_1-3.webp"
     first = out.read_bytes()
     assert first[:4] == b"RIFF" and first[8:12] == b"WEBP"
     status, _ = post(url, trend_body(rank=5), "/trend")
     assert status == 200 and out.read_bytes() != first
 
 
-@pytest.mark.parametrize("over", [{"user": "../x"}, {"points": []}, {"points": [{"day": 1}]}, {"images": ""}])
+@pytest.mark.parametrize("over", [{"user": "../x"}, {"name": "../x.webp"}, {"name": "x.png"}, {"name": ""}, {"points": []}, {"points": [{"day": 1}]}, {"images": ""}])
 def test_trend_bad_requests(server, over):  # noqa: F811
     url, _ = server
     status, resp = post(url, trend_body(**over), "/trend")

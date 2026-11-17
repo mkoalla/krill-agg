@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -80,11 +82,62 @@ func movingAverage(games []scores.PlayerScore, window int) []dailygen.TrendAvera
 // how long the bot waits on dailygen for one trend card
 const TREND_TIMEOUT = 5 * time.Second
 
-// their games (at least one) over the period as a trend card; its path on disk
-func trendImage(s *discordgo.Session, bcp *types.BotCommandPackage, guild, guildName, user, period string, games []scores.PlayerScore) (string, error) {
+// a card is named by what it shows: the period and the days its games span.
+// a new game (or the period's window leaving an old one behind) is a new
+// name, so a new card; anything else (nickname, rank, a corrected score)
+// shows up with the next one
+func trendName(period string, games []scores.PlayerScore) string {
+	return fmt.Sprintf("trend_%s_%d-%d.webp", period, games[0].Day, games[len(games)-1].Day)
+}
+
+// where a player's card for these games lives
+func trendPath(bcp *types.BotCommandPackage, guild, user, period string, games []scores.PlayerScore) string {
+	return filepath.Join(bcp.DataDir, dailygen.DIR, guild, "users", user, trendName(period, games))
+}
+
+// next to a card: the discord link it was last posted at
+func trendLink(path string) string {
+	return strings.TrimSuffix(path, ".webp") + ".link"
+}
+
+// one draw per card: whoever finds it missing draws it while the rest wait
+var trendLocks sync.Map // card path -> *sync.Mutex
+
+func lockTrend(path string) (unlock func()) {
+	mu, _ := trendLocks.LoadOrStore(path, &sync.Mutex{})
+	mu.(*sync.Mutex).Lock()
+	return mu.(*sync.Mutex).Unlock
+}
+
+// draws the card at path (see trendPath) unless it's already on disk,
+// calling onDraw first. the period's older cards and links are removed
+func cachedTrend(s *discordgo.Session, bcp *types.BotCommandPackage, path, guild, guildName, user, period string, games []scores.PlayerScore, onDraw func() error) error {
+	dir, name := filepath.Dir(path), filepath.Base(path)
+	defer lockTrend(path)()
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	if err := onDraw(); err != nil {
+		return err
+	}
+	if err := trendImage(s, bcp, dir, name, guild, guildName, user, period, games); err != nil {
+		return err
+	}
+	old, _ := filepath.Glob(filepath.Join(dir, "trend_"+period+"_*"))
+	for _, f := range old {
+		if f != path {
+			os.Remove(f) //nolint // a leftover is only disk space
+		}
+	}
+	return nil
+}
+
+// draws their games (at least one) over the period as dir/name
+func trendImage(s *discordgo.Session, bcp *types.BotCommandPackage, dir, name, guild, guildName, user, period string, games []scores.PlayerScore) error {
 	req := dailygen.TrendRequest{
 		Guild:     guild,
 		User:      user,
+		Name:      name,
 		Title:     displayName(s, guild, user),
 		GuildName: guildName,
 		Points:    make([]dailygen.TrendPoint, len(games)),
@@ -96,7 +149,7 @@ func trendImage(s *discordgo.Session, bcp *types.BotCommandPackage, guild, guild
 	req.MA, req.Window = movingAverage(games, window), label
 	rows, _, err := bcp.Leaderboard.Board(guild, leaderboard.BEST, period)
 	if err != nil {
-		return "", err
+		return err
 	}
 	for _, r := range rows {
 		if r.UserID == user {
@@ -105,24 +158,20 @@ func trendImage(s *discordgo.Session, bcp *types.BotCommandPackage, guild, guild
 		}
 	}
 
-	root := filepath.Join(bcp.DataDir, dailygen.DIR)
 	// no icon on the guild: just their avatar
-	images, _, _, err := daily.SaveAvatars(s, filepath.Join(root, guild, "users", user), &discordgo.Guild{ID: guild}, []string{user})
+	images, _, _, err := daily.SaveAvatars(s, dir, &discordgo.Guild{ID: guild}, []string{user})
 	if err != nil {
-		return "", fmt.Errorf("saving avatar: %v", err)
+		return fmt.Errorf("saving avatar: %v", err)
 	}
 	defer os.RemoveAll(images) //nolint // only needed while drawing
 	req.Images = filepath.Base(images)
 	ctx, cancel := context.WithTimeout(context.Background(), TREND_TIMEOUT)
 	defer cancel()
-	path, err := dailygen.RenderTrend(ctx, req)
+	_, err = dailygen.RenderTrend(ctx, req)
 	if errors.Is(err, context.DeadlineExceeded) {
-		return "", fmt.Errorf("the renderer took longer than %v", TREND_TIMEOUT)
+		return fmt.Errorf("the renderer took longer than %v", TREND_TIMEOUT)
 	}
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(root, path), nil
+	return err
 }
 
 func imageEmbed(description, url string) *discordgo.MessageEmbed {
@@ -135,7 +184,9 @@ func imageEmbed(description, url string) *discordgo.MessageEmbed {
 
 // adds the trend card under /topu's (already sent) embed: a placeholder while
 // it draws, then the card, or why there isn't one. nothing for someone left
-// off the boards or with no games in the period. always drawn anew
+// off the boards or with no games in the period. a card already posted for
+// the same games is linked again if discord still has it, else one already
+// drawn is uploaded again, with no placeholder either way
 func attachTrend(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordgo.InteractionCreate, ranks *discordgo.MessageEmbed, guildName, user, period string) error {
 	guild := i.GuildID
 	if banned, err := bcp.Leaderboard.IsBlacklisted(guild, user); err != nil || banned {
@@ -150,20 +201,30 @@ func attachTrend(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordg
 		return nil
 	}
 	noPings := &discordgo.MessageAllowedMentions{}
-	send := func(image *discordgo.MessageEmbed, files []*discordgo.File) error {
+	send := func(image *discordgo.MessageEmbed, files []*discordgo.File) (*discordgo.Message, error) {
 		embeds := []*discordgo.MessageEmbed{ranks, image}
-		_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &embeds, Files: files, AllowedMentions: noPings})
-		return err
+		return s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &embeds, Files: files, AllowedMentions: noPings})
 	}
 	fail := func(reason error) error {
-		return errors.Join(fmt.Errorf("trend image: %v", reason), send(imageEmbed("-# couldn't produce image: "+reason.Error(), ""), nil))
+		_, err := send(imageEmbed("-# couldn't produce image: "+reason.Error(), ""), nil)
+		return errors.Join(fmt.Errorf("trend image: %v", reason), err)
 	}
 
-	if err := send(imageEmbed("-# generating image...", ""), nil); err != nil {
+	path := trendPath(bcp, guild, user, period, games)
+	if url, at, ok := daily.ReadLink(trendLink(path)); ok {
+		_, err := send(imageEmbed(fmt.Sprintf("-# Image reused from <t:%d:R>", at.Unix()), url), nil)
 		return err
 	}
-	path, err := trendImage(s, bcp, guild, guildName, user, period, games)
+	placed := false // the placeholder went out, so a failure has a message to edit
+	err = cachedTrend(s, bcp, path, guild, guildName, user, period, games, func() error {
+		_, err := send(imageEmbed("-# generating image...", ""), nil)
+		placed = err == nil
+		return err
+	})
 	if err != nil {
+		if !placed {
+			return err
+		}
 		return fail(err)
 	}
 	f, err := os.Open(path)
@@ -172,8 +233,16 @@ func attachTrend(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordg
 	}
 	defer f.Close() //nolint
 	name := filepath.Base(path)
-	if err := send(imageEmbed("", "attachment://"+name), []*discordgo.File{{Name: name, ContentType: "image/webp", Reader: f}}); err != nil {
+	final, err := send(imageEmbed("", "attachment://"+name), []*discordgo.File{{Name: name, ContentType: "image/webp", Reader: f}})
+	if err != nil {
 		return fail(err)
+	}
+	url := daily.PostedURL(final)
+	if url == "" {
+		return errors.New("trend image: posted, but discord returned no url to reuse")
+	}
+	if err := daily.WriteLink(trendLink(path), url); err != nil {
+		return fmt.Errorf("trend image: saving its link: %v", err)
 	}
 	return nil
 }

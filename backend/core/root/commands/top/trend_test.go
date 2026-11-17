@@ -1,7 +1,12 @@
 package top
 
 import (
+	"krill-agg/root/info/dailygen"
 	"krill-agg/root/managers/scores"
+	"krill-agg/root/types"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -60,5 +65,37 @@ func TestHistory(t *testing.T) {
 	h := history(entries, "a")
 	if len(h) != 2 || h[0].Day != 2 || h[1].Day != 5 {
 		t.Errorf("history = %+v", h)
+	}
+}
+
+func TestTrendName(t *testing.T) {
+	if got := trendName("week", games(118, 1, 120, 2, 124, 3)); got != "trend_week_118-124.webp" {
+		t.Errorf("trendName = %q", got)
+	}
+}
+
+// a card already on disk for the same games is reused: nothing is drawn
+func TestCachedTrendReuses(t *testing.T) {
+	bcp := &types.BotCommandPackage{DataDir: t.TempDir()}
+	g := games(118, 300, 124, 400)
+	path := trendPath(bcp, "1", "2", "week", g)
+	if want := filepath.Join(bcp.DataDir, dailygen.DIR, "1", "users", "2", "trend_week_118-124.webp"); path != want {
+		t.Fatalf("trendPath = %q, want %q", path, want)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("card"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := cachedTrend(nil, bcp, path, "1", "Krill Club", "2", "week", g, func() error {
+		t.Error("drew a card that was already on disk")
+		return nil
+	})
+	if err != nil {
+		t.Errorf("cachedTrend: %v", err)
+	}
+	if got := trendLink(path); got != strings.TrimSuffix(path, "webp")+"link" {
+		t.Errorf("trendLink = %q", got)
 	}
 }

@@ -77,10 +77,12 @@ type TrendAverage struct {
 }
 
 // one player's games over a period (/topu). the avatar is implicit:
-// <guild>/users/<User>/<Images>/0.png under DIR. drawn anew every time
+// <guild>/users/<User>/<Images>/0.png under DIR. the card is written to
+// <guild>/users/<User>/<Name>, overwriting
 type TrendRequest struct {
 	Guild     string         `json:"guild"`
 	User      string         `json:"user"`
+	Name      string         `json:"name"`       // a bare *.webp`
 	Title     string         `json:"title"`      // their server nickname
 	GuildName string         `json:"guild_name"` // for the rank line
 	Images    string         `json:"images"`
