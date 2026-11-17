@@ -63,11 +63,13 @@ func TestRenderTimeout(t *testing.T) {
 }
 
 func TestRenderGivesUpAtDeadline(t *testing.T) {
-	var sent Request
+	got := make(chan Request, 1) // handed over, not shared: the handler runs on its own goroutine
 	release := make(chan struct{})
 	serve(t, func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&sent) //nolint
-		<-release                             // a render that never finishes in time
+		var req Request
+		json.NewDecoder(r.Body).Decode(&req) //nolint
+		got <- req
+		<-release // a render that never finishes in time
 	})
 	defer close(release)
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -81,6 +83,7 @@ func TestRenderGivesUpAtDeadline(t *testing.T) {
 		t.Errorf("waited %v past a 50ms deadline", waited)
 	}
 	deadline, _ := ctx.Deadline()
+	sent := <-got
 	if sent.Deadline != deadline.UnixMilli() {
 		t.Errorf("renderer was told deadline %d, want %d", sent.Deadline, deadline.UnixMilli())
 	}
