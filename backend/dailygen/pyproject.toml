@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Renders the krillion results card (score, distribution curve, percentile) as a PNG"
 readme = "README.md"
 authors = [
-    { name = "michaeljwalla", email = "michaeljwalla@gmail.com" }
+    { name = "michaeljwalla", email = "michael@walla.sh" }
 ]
 requires-python = ">=3.13"
 dependencies = [
