@@ -3,22 +3,28 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"krill-agg/root/bot"
 	"krill-agg/root/commands"
 	"krill-agg/root/commands/daily"
 	"krill-agg/root/ctl"
+	"krill-agg/root/info/dailygen"
 	"krill-agg/root/info/version"
 	"krill-agg/root/managers/audit"
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/managers/components"
+	"krill-agg/root/managers/distributions"
 	"krill-agg/root/managers/leaderboard"
 	"krill-agg/root/managers/pages"
+	"krill-agg/root/managers/questions"
 	"krill-agg/root/managers/scores"
 	"krill-agg/root/managers/tracking"
 	"log"
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -34,12 +40,14 @@ var (
 )
 
 const (
-	DATA_PATH         = "./data/"
-	LOG_PATH          = DATA_PATH + "logs/"
-	DISCORD_AUTH_PATH = DATA_PATH + "discord_auth.db"
-	SCORES_PATH       = DATA_PATH + "scores.db"
-	TRACKING_PATH     = DATA_PATH + "tracking.db"
-	LEADERBOARD_PATH  = DATA_PATH + "leaderboard.db"
+	DATA_PATH          = "./data/"
+	LOG_PATH           = DATA_PATH + "logs/"
+	DISCORD_AUTH_PATH  = DATA_PATH + "discord_auth.db"
+	SCORES_PATH        = DATA_PATH + "scores.db"
+	TRACKING_PATH      = DATA_PATH + "tracking.db"
+	LEADERBOARD_PATH   = DATA_PATH + "leaderboard.db"
+	QUESTIONS_PATH     = DATA_PATH + "questions.db"
+	DISTRIBUTIONS_PATH = DATA_PATH + "distributions.db"
 )
 
 func setEnvironmentVars() (token string, mode string) {
@@ -84,6 +92,22 @@ func getManLeaderboard(scores *scores.ScoreManager) *leaderboard.Manager {
 	man, err := leaderboard.New(LEADERBOARD_PATH, scores)
 	if err != nil {
 		logger.Panic(fmt.Sprintf("Couldn't init leaderboard manager: %v", err), audit.LogGroup.INIT)
+		return nil
+	}
+	return man
+}
+func getManQuestions() *questions.Manager {
+	man, err := questions.New(QUESTIONS_PATH)
+	if err != nil {
+		logger.Panic(fmt.Sprintf("Couldn't init questions manager: %v", err), audit.LogGroup.INIT)
+		return nil
+	}
+	return man
+}
+func getManDistributions() *distributions.Manager {
+	man, err := distributions.New(DISTRIBUTIONS_PATH)
+	if err != nil {
+		logger.Panic(fmt.Sprintf("Couldn't init distributions manager: %v", err), audit.LogGroup.INIT)
 		return nil
 	}
 	return man
@@ -155,6 +179,54 @@ func runCtl(args []string) int {
 	return 0
 }
 
+// bytes under dir, counting every file
+func dirSize(dir string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			total += info.Size()
+		}
+		return nil
+	})
+	return total, err
+}
+
+// past this many MB of rendered cards, launch logs a warning
+const DEFAULT_WARN_SIZE_MB = 1024
+
+// once at launch: warns if the rendered cards (data/dailygen) have grown past
+// WARN_SIZE_MB megabytes (DEFAULT_WARN_SIZE_MB when unset)
+func checkCardsSize() {
+	raw := os.Getenv("WARN_SIZE_MB")
+	if raw == "" {
+		raw = strconv.Itoa(DEFAULT_WARN_SIZE_MB)
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit <= 0 {
+		logger.Warn(fmt.Sprintf("WARN_SIZE_MB=%q isn't a positive whole number; not checking card storage", raw), audit.LogGroup.INIT)
+		return
+	}
+	dir := filepath.Join(DATA_PATH, dailygen.DIR)
+	size, err := dirSize(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		logger.Warn(fmt.Sprintf("Couldn't measure %s: %v", dir, err), audit.LogGroup.INIT)
+		return
+	}
+	if mb := size / (1 << 20); mb > int64(limit) {
+		logger.Warn(fmt.Sprintf("%s is %d MB, over WARN_SIZE_MB=%d", dir, mb, limit), audit.LogGroup.INIT)
+	}
+}
+
 func startCtl(session *bot.Session) *ctl.Server {
 	srv, err := ctl.Serve(ctl.SOCKET, map[string]ctl.Handler{
 		"daily": daily.CtlDaily(session.DGSession, session.Package, func(msg string) {
@@ -198,16 +270,19 @@ func main() {
 	defer logger.Close() // nolint
 
 	checkForUpdates()
+	checkCardsSize()
 
 	scoreMan := getManScores()
 	commands := commands.Register(commands.RegisterReqs{
-		Auth:        getManAuth(),
-		Components:  components.New(),
-		Pages:       pages.New(),
-		Leaderboard: getManLeaderboard(scoreMan),
-		Scores:      scoreMan,
-		Tracking:    getManTracking(),
-		DataDir:     DATA_PATH,
+		Auth:          getManAuth(),
+		Components:    components.New(),
+		Pages:         pages.New(),
+		Leaderboard:   getManLeaderboard(scoreMan),
+		Questions:     getManQuestions(),
+		Distributions: getManDistributions(),
+		Scores:        scoreMan,
+		Tracking:      getManTracking(),
+		DataDir:       DATA_PATH,
 	})
 
 	session, err := bot.Start(bot.StartInstructions{

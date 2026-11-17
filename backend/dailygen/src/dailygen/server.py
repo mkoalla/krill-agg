@@ -1,12 +1,20 @@
 """HTTP front for the card renderer: the bot POSTs /render and gets back where
 the png landed under the shared data dir.
 
-POST /render {"guild", "title", "day", "mean", "dist", "percentile"?,
-              "users"?: [{"score"}], "user_size"?, "max_push"?, "icon"?, "sample"?}
-  -> 200 {"path": "<guild>/daily_<day>.png"}   (relative to the daily dir)
+POST /render {"guild", "title", "day", "images", "mean"?, "dist"?, "percentile"?,
+              "users"?: [{"score"}], "user_size"?, "max_push"?, "icon"?, "sample"?,
+              "population"?}
+  -> 200 {"path": "<guild>/<day>/daily_<day>.png"}   (relative to the data dir)
   -> 400/500 {"error": "..."}
-Avatars are implicit: users[i] uses <guild>/images/<i>.png when it exists.
-"icon" names the guild's icon in that same folder (e.g. "guild.png").
+Avatars are implicit: users[i] uses <guild>/<day>/<images>/<i>.png when it
+exists. "icon" names the guild's icon in that same folder (e.g. "guild.png").
+"images" is a required bare folder name: the bot makes it as a scratch dir for
+this render's avatars/icon and removes it afterward, so we only ever read from
+it, never create or delete it ourselves.
+"mean" is the guild's average score; null or omitted when nobody in the guild
+played. "dist" is krillion's 20 bucket counts; null, [], or all-zero when
+there's no distribution that day. "population" overrides the "OF ..." footer
+wording (default "today's players").
 GET /health -> 200
 """
 
@@ -23,12 +31,12 @@ from .card import CardData, render_png
 from .players import Player
 
 DEFAULT_PORT = 40404
-# data/daily/ on the bind mount shared with the bot
-DEFAULT_DATA_DIR = "/app/data/daily"
+# data/dailygen/ on the bind mount shared with the bot
+DEFAULT_DATA_DIR = "/app/data/dailygen"
 MAX_BODY = 1 << 20  # requests are small; refuse anything silly
 
 GUILD_ID = re.compile(r"^\d{1,20}$")
-FILE_NAME = re.compile(r"^\w[\w.-]{0,63}$")  # a bare name, so it can't leave images/
+FILE_NAME = re.compile(r"^\w[\w.-]{0,63}$")  # a bare name, so it can't leave its folder
 
 
 class BadRequest(ValueError):
@@ -40,12 +48,15 @@ def build(body: dict, data_dir: Path) -> tuple[CardData, Path]:
     guild = str(body.get("guild", ""))
     if not GUILD_ID.match(guild):  # also keeps every path inside data_dir
         raise BadRequest("guild must be a discord id")
+    images_name = str(body.get("images", ""))
+    if not FILE_NAME.match(images_name):  # required: the bot's scratch dir for this render
+        raise BadRequest("images must be a folder name")
     try:
         day = int(body["day"])
-        mean = float(body["mean"])
-        dist = [float(c) for c in body["dist"]]
+        mean = None if body.get("mean") is None else float(body["mean"])
+        dist = [] if body.get("dist") is None else [float(c) for c in body["dist"]]
         percentile = None if body.get("percentile") is None else float(body["percentile"])
-        users = [float(u["score"]) for u in body.get("users", [])]
+        users = [float(u["score"]) for u in body.get("users") or []]
         user_size = float(body.get("user_size", 28))
         max_push = int(body.get("max_push", 4))
         sample = None if body.get("sample") is None else int(body["sample"])
@@ -54,10 +65,18 @@ def build(body: dict, data_dir: Path) -> tuple[CardData, Path]:
     icon = str(body.get("icon") or "")
     if icon and not FILE_NAME.match(icon):
         raise BadRequest("icon must be a file name")
-    if len(dist) == 0 or day < 0 or user_size <= 0:
-        raise BadRequest("dist must be non-empty, day and user_size positive")
+    if day < 0 or user_size <= 0:
+        raise BadRequest("day and user_size must be positive")
+    population = body.get("population")
+    if population is None:
+        population = "today's players"
+    elif not isinstance(population, str):
+        raise BadRequest("population must be a string")
+    else:
+        population = population[:40]
 
-    images = data_dir / guild / "images"
+    card_dir = data_dir / guild / str(day)
+    images = card_dir / images_name  # the bot's scratch dir; we only ever read from it
     players = [Player(score=s, avatar=str(images / f"{i}.png")) for i, s in enumerate(users)]
     data = CardData(
         title=str(body.get("title", "")),
@@ -70,8 +89,9 @@ def build(body: dict, data_dir: Path) -> tuple[CardData, Path]:
         max_push=max_push,
         icon=str(images / icon) if icon else None,
         sample=sample,
+        population=population,
     )
-    return data, data_dir / guild / f"daily_{day}.png"
+    return data, card_dir / f"daily_{day}.png"
 
 
 def write_atomic(path: Path, content: bytes) -> None:

@@ -21,6 +21,14 @@ echo '{"title":"The Krill Club","day":124,"mean":371.4,"dist":[...20 counts...],
 uv run python -m dailygen --json data.json --out card.png
 ```
 
+`mean` is null or omitted on a day nobody played: the score shows as "—", the
+depth line is left off, and there's no AVG marker, guild icon, or top-score
+card. `dist` is null, `[]`, or omitted (also: all 20 counts zero) on a day
+krillion has no distribution for: the chart still draws its frame, ticks, and
+baseline, just as a flat line instead of a curve. Either way the "BETTER
+THAN ..." footer line is left off whenever there's no mean or no distribution
+to compare it against.
+
 Players go on the curve as greyed pins with their avatar floating above, cropped
 to a square from the center and drawn at `--user-size` px. A missing, empty or
 unreadable avatar path draws a plain grey disc instead. Players whose avatars
@@ -44,17 +52,28 @@ way the bot does (buckets below the score plus a linear share of its own).
 ## Server (what the bot calls)
 
 ```sh
-uv run python -m dailygen.server --data-dir ../../data/daily
+uv run python -m dailygen.server --data-dir ../../data/dailygen
 ```
 
-`POST /render` with `{"guild", "title", "day", "mean", "dist", "percentile"?,
-"users": [{"score"}], "user_size"?, "max_push"?, "icon"?, "sample"?}` writes
-`<data-dir>/<guild>/daily_<day>.png` (overwriting; `data/daily/` on the shared mount) and answers
-`200 {"path": "<guild>/daily_<day>.png"}`, or `400`/`500` with `{"error"}`.
-Avatars are implicit: `users[i]` is drawn from `<guild>/images/<i>.png`, which
-the bot downloads beforehand; a missing file is a grey disc. `icon` is a bare
-file name in that same folder (the bot sends `guild.png`). `sample` (krillion's
-player count) is drawn right-aligned on the footer line as "3,245,071 TOTAL". `GET /health` is 200.
+`POST /render` with `{"guild", "title", "day", "images", "mean"?, "dist"?,
+"percentile"?, "users"?: [{"score"}], "user_size"?, "max_push"?, "icon"?,
+"sample"?, "population"?}` writes `<data-dir>/<guild>/<day>/daily_<day>.png`
+(overwriting; `data/dailygen/` on the shared mount) and answers
+`200 {"path": "<guild>/<day>/daily_<day>.png"}`, or `400`/`500` with `{"error"}`.
+
+`images` is required: a bare folder name. The bot creates it as a unique
+scratch dir at `<guild>/<day>/<images>/`, downloads `users[i]`'s avatar there
+as `<i>.png` and the guild icon as whatever `icon` names (e.g. `guild.png`),
+and deletes it once the render is done; we only ever read from it, never
+create or remove it. A missing avatar or icon file is a grey disc / no icon.
+`sample` (krillion's player count) is drawn right-aligned on the footer line
+as "3,245,071 TOTAL".
+
+`mean` is null or omitted on a day nobody in the guild played, and `dist` is
+null, `[]`, or omitted (also: all-zero) on a day krillion has no distribution
+for — see the rendering rules above. `population` overrides the "OF ..."
+wording in the "BETTER THAN" footer line (default "today's players"; the bot
+sends "that day's players" when backfilling a past day). `GET /health` is 200.
 
 In compose this runs as `dailygen` on the `krill-agg` network, sharing the
 `data/` mount with the bot, which reaches it at `http://dailygen:40404`.

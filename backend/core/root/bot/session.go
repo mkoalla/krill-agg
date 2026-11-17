@@ -292,10 +292,12 @@ func Start(instr StartInstructions) (session *Session, err error) {
 
 func EndSession(session *Session) {
 	session.Logger.Add("Ending session...", audit.LogGroup.BOT)
-	defer session.Package.Auth.Close()        //nolint
-	defer session.Package.Scores.Close()      //nolint
-	defer session.Package.Tracking.Close()    //nolint
-	defer session.Package.Leaderboard.Close() //nolint
+	defer session.Package.Auth.Close()          //nolint
+	defer session.Package.Scores.Close()        //nolint
+	defer session.Package.Tracking.Close()      //nolint
+	defer session.Package.Leaderboard.Close()   //nolint
+	defer session.Package.Questions.Close()     //nolint
+	defer session.Package.Distributions.Close() //nolint
 
 	defer func() {
 		if err := session.DGSession.Close(); err != nil {

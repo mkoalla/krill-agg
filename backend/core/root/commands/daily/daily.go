@@ -1,14 +1,17 @@
 package daily
 
 import (
+	"errors"
 	"fmt"
 	"krill-agg/root/commands/stats"
+	"krill-agg/root/info/dailygen"
 	"krill-agg/root/info/krillionapi"
 	"krill-agg/root/krillion"
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/managers/scores"
 	"krill-agg/root/types"
 	"math"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -102,6 +105,14 @@ func Combined(day int, entries []scores.Entry, dist krillionapi.Stats) *discordg
 	return embed
 }
 
+// a daily report is a natural point to bring the leaderboards up to date
+func refetchBoards(bcp *types.BotCommandPackage, guild string) error {
+	if err := bcp.Leaderboard.Refetch(guild); err != nil {
+		return fmt.Errorf("refetching leaderboards: %v", err)
+	}
+	return nil
+}
+
 // everything one report is built from, kept so the image step needn't refetch
 type Snapshot struct {
 	Guild   string
@@ -120,12 +131,40 @@ func Report(bcp *types.BotCommandPackage, guild string, day int) ([]*discordgo.M
 	if err != nil {
 		return nil, nil, fmt.Errorf("fetching today's distribution: %v", err)
 	}
+	// kept so this day's card can be drawn again after krillion moves on
+	bcp.Distributions.Save(day, dist) //nolint // optional: only a later redraw needs it
 	snap := &Snapshot{Guild: guild, Day: day, Entries: entries, Dist: dist}
-	return []*discordgo.MessageEmbed{Combined(day, entries, dist)}, snap, nil
+	embeds := []*discordgo.MessageEmbed{Combined(day, entries, dist)}
+	// between the scores and the card (withImage adds that last). fetched and
+	// saved here so /stats can show them later; if krillion won't say, any
+	// saved copy still shows
+	bcp.Questions.Fetch(day) //nolint // optional: a failure only loses the embed
+	if q := stats.Questions(bcp, day); q != nil {
+		embeds = append(embeds, q)
+	}
+	return embeds, snap, nil
+}
+
+// a past day's card for /stats: the board it already sent stays, the card
+// joins it as a last embed. drawn once per day, then reused through the
+// link file kept beside it (re-uploaded if discord's link has expired); no
+// cooldown. krillion's distribution for the day comes from distributions.db
+// (none saved: a flat line)
+func pastCard(s *discordgo.Session, i *discordgo.InteractionCreate, bcp *types.BotCommandPackage, day int, entries []scores.Entry, embeds []*discordgo.MessageEmbed) error {
+	dist, _ := bcp.Distributions.Get(day)
+	snap := &Snapshot{Guild: i.GuildID, Day: day, Entries: entries, Dist: dist}
+	reply := replySender(s, i)
+	// keep /stats's own text above the embeds, not the daily heading
+	post := func(_ string, embeds []*discordgo.MessageEmbed, files []*discordgo.File) (*discordgo.Message, error) {
+		return reply(stats.Footer(day), embeds, files)
+	}
+	_, err := withImage(s, post, bcp, snap, embeds, claimPast(filepath.Join(bcp.DataDir, dailygen.DIR, i.GuildID, strconv.Itoa(day)), day), ImageOptions{})
+	return err
 }
 
 // map is already reference-like but just for continuity
 func Register(bcp *types.BotCommandPackage) {
+	stats.PastCard = pastCard
 	(*bcp.Handles)["forcedaily"] = CommandInfo{
 		DGInfo: &discordgo.ApplicationCommand{
 			Name:        "forcedaily",
@@ -158,7 +197,7 @@ func Register(bcp *types.BotCommandPackage) {
 			}
 			// a person asking again soon gets the recent card instead of a re-render
 			_, err = withImage(s, replySender(s, i), bcp, snap, embeds, t, opts)
-			return err
+			return errors.Join(err, refetchBoards(bcp, i.GuildID))
 		},
 	}
 }

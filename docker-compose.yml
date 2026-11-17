@@ -16,7 +16,7 @@ services:
     image: krill-agg:latest
 
   # renders the /forcedaily card; only the bot talks to it, over krill-agg.
-  # reads avatars from and writes cards to data/daily/ on the same mount
+  # reads avatars from and writes cards to data/dailygen/ on the same mount
   dailygen:
     build:
       context: ./backend/dailygen

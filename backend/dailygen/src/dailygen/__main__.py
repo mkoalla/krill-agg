@@ -3,8 +3,10 @@
 
 Without --json the card uses placeholder numbers from krillion's api: --score is
 sent as the "guild mean" and the returned distribution and betterThan are used.
---json renders given data offline: {"day", "mean", "dist", "title"?, "percentile"?,
-"users"?: [{"score", "avatar"?}], "icon"?, "sample"?}. --user adds players either way.
+--json renders given data offline: {"day", "title"?, "mean"?, "dist"?, "percentile"?,
+"users"?: [{"score", "avatar"?}], "icon"?, "sample"?, "population"?}. "mean" null/
+omitted means nobody played; "dist" null/[]/omitted means no distribution that day.
+--user adds players either way.
 """
 
 import argparse
@@ -43,11 +45,12 @@ def main() -> int:
         data = CardData(
             title=raw.get("title", args.title),
             day=raw["day"],
-            mean=raw["mean"],
-            dist=raw["dist"],
+            mean=raw.get("mean"),
+            dist=raw.get("dist") or [],
             percentile=raw.get("percentile"),
             icon=raw.get("icon"),
             sample=raw.get("sample"),
+            population=raw.get("population", "today's players"),
         )
         players += [Player(score=u["score"], avatar=u.get("avatar")) for u in raw.get("users", [])]
     else:

@@ -15,8 +15,10 @@ import (
 	"krill-agg/root/commands/version"
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/managers/components"
+	"krill-agg/root/managers/distributions"
 	"krill-agg/root/managers/leaderboard"
 	"krill-agg/root/managers/pages"
+	"krill-agg/root/managers/questions"
 	"krill-agg/root/managers/scores"
 	"krill-agg/root/managers/tracking"
 	"krill-agg/root/types"
@@ -26,13 +28,15 @@ type CommandInfo = types.CommandInfo
 type EventCallback = types.EventCallback
 
 type RegisterReqs struct {
-	Auth        *authorize.AuthManager
-	Components  *components.ComponentCallbackManager
-	Pages       *pages.Manager
-	Leaderboard *leaderboard.Manager
-	Scores      *scores.ScoreManager
-	Tracking    *tracking.TrackingManager
-	DataDir     string
+	Auth          *authorize.AuthManager
+	Components    *components.ComponentCallbackManager
+	Pages         *pages.Manager
+	Leaderboard   *leaderboard.Manager
+	Questions     *questions.Manager
+	Distributions *distributions.Manager
+	Scores        *scores.ScoreManager
+	Tracking      *tracking.TrackingManager
+	DataDir       string
 }
 
 var registers = []func(*types.BotCommandPackage){
@@ -60,6 +64,8 @@ func Register(reqs RegisterReqs) *types.BotCommandPackage {
 		Components:      reqs.Components,
 		Pages:           reqs.Pages,
 		Leaderboard:     reqs.Leaderboard,
+		Questions:       reqs.Questions,
+		Distributions:   reqs.Distributions,
 		Scores:          reqs.Scores,
 		Tracking:        reqs.Tracking,
 		DataDir:         reqs.DataDir,

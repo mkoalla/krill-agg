@@ -66,6 +66,32 @@ func Board(day int, entries []scores.Entry) *discordgo.MessageEmbed {
 	return &discordgo.MessageEmbed{Title: krillion.Header(day), Description: desc, Color: theme.ACCENT}
 }
 
+const QUESTIONS_TITLE = "Today's Questions"
+
+// "1. ||question||" for each, spoilered so nobody sees them by accident
+func QuestionsEmbed(qs []string) *discordgo.MessageEmbed {
+	lines := make([]string, len(qs))
+	for j, q := range qs {
+		lines[j] = fmt.Sprintf("%d. ||%s||", j+1, q)
+	}
+	return &discordgo.MessageEmbed{Title: QUESTIONS_TITLE, Description: strings.Join(lines, "\n"), Color: theme.ACCENT}
+}
+
+// the day's saved questions as an embed, or nil if they were never fetched
+// (only daily reports fetch them; krillion only shares today's)
+func Questions(bcp *types.BotCommandPackage, day int) *discordgo.MessageEmbed {
+	qs, ok := bcp.Questions.Get(day)
+	if !ok {
+		return nil
+	}
+	return QuestionsEmbed(qs)
+}
+
+// draws a finished day's card under its board, editing the reply that was
+// just sent. set by the daily package, which owns the cards (and imports
+// this one, so it can't be called directly)
+var PastCard func(s *discordgo.Session, i *discordgo.InteractionCreate, bcp *types.BotCommandPackage, day int, entries []scores.Entry, embeds []*discordgo.MessageEmbed) error
+
 // map is already reference-like but just for continuity
 func Register(bcp *types.BotCommandPackage) {
 	(*bcp.Handles)["stats"] = CommandInfo{
@@ -96,15 +122,26 @@ func Register(bcp *types.BotCommandPackage) {
 				return err
 			}
 
-			return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			embeds := []*discordgo.MessageEmbed{Board(day, entries)}
+			if q := Questions(bcp, day); q != nil {
+				embeds = append(embeds, q)
+			}
+			if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
 					// discord always renders content above embeds
 					Content:         Footer(day),
-					Embeds:          []*discordgo.MessageEmbed{Board(day, entries)},
+					Embeds:          embeds,
 					AllowedMentions: &discordgo.MessageAllowedMentions{},
 				},
-			})
+			}); err != nil {
+				return err
+			}
+			// a day that's over gets its card; today's comes with the daily report
+			if day >= 1 && day < krillion.Today() && PastCard != nil {
+				return PastCard(s, i, bcp, day, entries, embeds)
+			}
+			return nil
 		},
 	}
 }

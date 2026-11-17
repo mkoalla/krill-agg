@@ -1,6 +1,6 @@
 import resvg_py
 
-from dailygen.card import BASE_CARD_H, CLEARANCE, CardData, layout, render_png, render_svg
+from dailygen.card import BASE_CARD_H, CHART_SCALE, CLEARANCE, CardData, layout, render_png, render_svg
 from dailygen import curve
 from dailygen.players import Player, avatar_uri, parse_user, stack
 
@@ -52,6 +52,17 @@ def test_tall_stacks_grow_the_card():
     lay = layout(crowded, pts)
     assert lay.card_h > BASE_CARD_H
     assert min(p.cy for p in lay.players) - crowded.user_size / 2 >= CLEARANCE - 0.01
+
+
+def test_avatars_sit_on_baseline_without_dist():
+    # the bug to avoid: with no distribution, pts is empty and curve_y used to
+    # fall back to 0 instead of the baseline, so avatars floated off the chart
+    data = CardData(title="t", day=1, mean=350, dist=[], players=[Player(100), Player(400)])
+    pts = curve.points(curve.smooth(data.dist))
+    assert pts == []
+    lay = layout(data, pts)
+    expected = curve.BASELINE * CHART_SCALE
+    assert all(p.curve_y - lay.chart_top == expected for p in lay.players)
 
 
 def test_players_render():

@@ -75,8 +75,8 @@ TOP_MAX_AVATARS = 3
 class CardData:
     title: str  # guild name
     day: int
-    mean: float  # guild mean score
-    dist: list[float]  # krillion's 20 bucket counts
+    mean: float | None  # guild mean score; None when nobody in the guild played
+    dist: list[float]  # krillion's 20 bucket counts; empty means no distribution that day
     percentile: float | None = None  # estimated from dist when None
     marker: str = "AVG"
     population: str = "today's players"
@@ -86,9 +86,15 @@ class CardData:
     icon: str | None = None  # guild icon path; missing/unreadable means none drawn
     sample: int | None = None  # krillion's player count today; drawn when known
 
+    def has_dist(self) -> bool:
+        """False for an empty or all-zero histogram: no distribution that day"""
+        return any(v > 0 for v in self.dist)
+
     def better_than(self) -> float:
         if self.percentile is not None:
             return self.percentile
+        if self.mean is None:
+            return 0.0
         return curve.percentile(self.dist, self.mean)
 
 
@@ -113,14 +119,35 @@ def _fit(text: str, size: float, max_width: float) -> str:
 
 
 def chart_svg(data: CardData, pts: list[curve.Point]) -> str:
-    """The distribution chart in its own 320x96 space, minus the AVG marker."""
-    if not pts:
-        return ""
-    line = curve.bezier_path(pts)
-    area = curve.area_path(line)
-    m = curve.score_x(data.mean)
-    label_x = min(max(m, 14), 306)
+    """The chart's frame (baseline, ticks, end labels) always draws; the curve
+    itself is a flat line along the baseline when there's no distribution
+    (pts empty). Minus the AVG marker, drawn separately (see marker_svg)."""
     base = curve.BASELINE
+    m = None if data.mean is None else curve.score_x(data.mean)
+    label_x = None if m is None else min(max(m, 14), 306)
+
+    if pts:
+        line = curve.bezier_path(pts)
+        area = curve.area_path(line)
+        beaten = (
+            f'<clipPath id="pc-beaten"><rect x="0" y="0" width="{m:.3f}" height="96"/></clipPath>'
+            if m is not None
+            else ""
+        )
+        curve_svg = f"""
+  <defs>
+    <linearGradient id="pc-fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="{CYAN}" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="{CYAN}" stop-opacity="0.02"/>
+    </linearGradient>
+    {beaten}
+  </defs>
+  <path d="{area}" fill="url(#pc-fill)" opacity="0.28"/>
+  {f'<path d="{area}" fill="url(#pc-fill)" clip-path="url(#pc-beaten)"/>' if m is not None else ""}
+  <path d="{line}" fill="none" stroke="{CYAN}" stroke-width="1.4" stroke-opacity="0.75"/>"""
+    else:
+        # no histogram to draw: a flat line stands in for the curve
+        curve_svg = f'\n  <line x1="0" y1="{base}" x2="{curve.WIDTH}" y2="{base}" stroke="{CYAN}" stroke-width="1.4" stroke-opacity="0.75"/>'
 
     ticks = []
     for value in (100, 200, 300, 400, 500, 600):
@@ -128,32 +155,23 @@ def chart_svg(data: CardData, pts: list[curve.Point]) -> str:
         ticks.append(
             f'<line x1="{x:.3f}" y1="{base}" x2="{x:.3f}" y2="81.5" stroke="{DRIFT}" stroke-opacity="0.5"/>'
         )
-        if abs(x - m) >= 18:  # keep clear of the marker label
+        if m is None or abs(x - m) >= 18:  # keep clear of the marker label
             ticks.append(
                 f'<text x="{x:.3f}" y="90" text-anchor="middle" font-size="9" fill="{DRIFT}" opacity="0.55">{value}</text>'
             )
 
     # the site always draws these and lets the marker label overlap them at the
-    # extremes; drop one the same way ticks give way
+    # extremes; drop one the same way ticks give way. with no marker there's
+    # nothing to dodge, so both always show
     ends = ""
-    if label_x >= 18:
+    if label_x is None or label_x >= 18:
         ends += (
             f'<text x="0" y="90" font-size="9" fill="{DRIFT}" opacity="0.6">0</text>'
         )
-    if curve.WIDTH - label_x >= 18:
+    if label_x is None or curve.WIDTH - label_x >= 18:
         ends += f'<text x="{curve.WIDTH}" y="90" text-anchor="end" font-size="9" fill="{DRIFT}" opacity="0.6">{curve.MAX_DAY_SCORE}</text>'
 
-    return f"""
-  <defs>
-    <linearGradient id="pc-fill" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="{CYAN}" stop-opacity="0.45"/>
-      <stop offset="100%" stop-color="{CYAN}" stop-opacity="0.02"/>
-    </linearGradient>
-    <clipPath id="pc-beaten"><rect x="0" y="0" width="{m:.3f}" height="96"/></clipPath>
-  </defs>
-  <path d="{area}" fill="url(#pc-fill)" opacity="0.28"/>
-  <path d="{area}" fill="url(#pc-fill)" clip-path="url(#pc-beaten)"/>
-  <path d="{line}" fill="none" stroke="{CYAN}" stroke-width="1.4" stroke-opacity="0.75"/>
+    return f"""{curve_svg}
   <line x1="0" y1="{base}" x2="{curve.WIDTH}" y2="{base}" stroke="{HAIRLINE}"/>
   {"".join(ticks)}
   {ends}"""
@@ -165,9 +183,10 @@ def _label_x(data: CardData) -> float:
 
 
 def marker_svg(data: CardData, pts: list[curve.Point], label: bool = True) -> str:
-    """The AVG pin, drawn last so it stays over the players. label=False leaves
-    the text out for the guild icon to take its place (see avg_icon_svg)."""
-    if not pts:
+    """The AVG pin, drawn last so it stays over the players. Nothing to mark
+    without a mean (nobody in the guild played). label=False leaves the text
+    out for the guild icon to take its place (see avg_icon_svg)."""
+    if data.mean is None:
         return ""
     m = curve.score_x(data.mean)
     h = curve.marker_y(pts, m)
@@ -210,11 +229,9 @@ def layout(data: CardData, pts: list[curve.Point]) -> Layout:
 
     rel = []  # positions relative to the chart's top
     for j, x, level in zip(order, xs, levels):
-        curve_y = (
-            curve.marker_y(pts, curve.score_x(data.players[j].score)) * CHART_SCALE
-            if pts
-            else 0
-        )
+        # marker_y falls back to BASELINE when pts is empty (no distribution),
+        # so avatars still sit on the flat line instead of floating at 0
+        curve_y = curve.marker_y(pts, curve.score_x(data.players[j].score)) * CHART_SCALE
         cy = curve_y - PIN_LEN - r - level * (data.user_size + LEVEL_GAP)
         rel.append((j, x, curve_y, cy))
 
@@ -268,8 +285,8 @@ def players_svg(data: CardData, placed: list[Placed]) -> str:
 def avg_icon_svg(data: CardData, uri: str | None, chart_top: float) -> str:
     """The guild icon in place of the AVG label: a lightly rounded square as
     big as the players' avatars, ringed in the pin's color, just under the
-    baseline below the pin."""
-    if not uri:
+    baseline below the pin. Nothing to replace without a mean."""
+    if not uri or data.mean is None:
         return ""
     size = data.user_size
     x = PAD + _label_x(data) * CHART_SCALE - size / 2
@@ -323,19 +340,31 @@ def top_svg(data: CardData, top: float) -> str:
 
 
 def render_svg(data: CardData) -> str:
-    score = round(data.mean)
-    depth = f"-{10 * score:,}m"
+    # an em dash and no depth line stand in for the score when nobody played
+    score_text = "—" if data.mean is None else str(round(data.mean))
+    depth = "" if data.mean is None else f"-{10 * round(data.mean):,}m"
     dive = f"DIVE #{data.day} COMPLETE"
     dive_w = _width(dive, LABEL_SIZE, LABEL_SPACING_EM)
     title = _fit(f"{data.title}", TITLE_SIZE, CARD_W - 2 * PAD - dive_w - SCORE_GAP)
-    beside_score = PAD + _width(str(score), SCORE_SIZE) + SCORE_GAP
+    # the dash stands in for a 3-digit score, so the labels keep their place
+    beside_score = PAD + _width(score_text if data.mean is not None else "000", SCORE_SIZE) + SCORE_GAP
     label_spacing = _spacing(LABEL_SIZE, LABEL_SPACING_EM)
-    better = f"BETTER THAN {curve.format_percentile(data.better_than())}% OF {data.population.upper()}"
-    total = "" if data.sample is None else f"{data.sample:,} TOTAL"
+    # nothing to compare against without both a distribution and a mean
+    better = (
+        f"BETTER THAN {curve.format_percentile(data.better_than())}% OF {data.population.upper()}"
+        if data.has_dist() and data.mean is not None
+        else ""
+    )
+    total = "" if not data.sample else f"{data.sample:,} TOTAL"
     pts = curve.points(curve.smooth(data.dist))
     lay = layout(data, pts)
     icon = avatar_uri(data.icon)
     chart = f"translate({PAD} {lay.chart_top:.2f}) scale({CHART_SCALE:.5f})"
+    depth_svg = (
+        ""
+        if not depth
+        else f'<text x="{beside_score:.2f}" y="{SCORE_BASELINE:.2f}" font-size="{LABEL_SIZE}" fill="{CYAN}">{depth}</text>'
+    )
 
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{CARD_W}" height="{lay.card_h:.0f}" viewBox="0 0 {CARD_W} {lay.card_h:.0f}" font-family="{FONT_FAMILY}">
   <defs>
@@ -356,17 +385,17 @@ def render_svg(data: CardData) -> str:
   <text x="{CARD_W - PAD}" y="{_baseline_for_top(TITLE_TOP, LABEL_SIZE):.2f}" text-anchor="end" font-size="{LABEL_SIZE}" letter-spacing="{label_spacing}" fill="{DRIFT}">{dive}</text>
   {top_svg(data, SCORE_TOP)}
 
-  <text x="{PAD}" y="{SCORE_BASELINE:.2f}" font-size="{SCORE_SIZE}" fill="{CYAN}" opacity="0.45" filter="url(#glow)">{score}</text>
-  <text x="{PAD}" y="{SCORE_BASELINE:.2f}" font-size="{SCORE_SIZE}" fill="{FOAM}">{score}</text>
+  <text x="{PAD}" y="{SCORE_BASELINE:.2f}" font-size="{SCORE_SIZE}" fill="{CYAN}" opacity="0.45" filter="url(#glow)">{score_text}</text>
+  <text x="{PAD}" y="{SCORE_BASELINE:.2f}" font-size="{SCORE_SIZE}" fill="{FOAM}">{score_text}</text>
   <text x="{beside_score:.2f}" y="{_baseline_for_top(SCORE_TOP, LABEL_SIZE):.2f}" font-size="{LABEL_SIZE}" letter-spacing="{label_spacing}" fill="{DRIFT}">GUILD AVERAGE</text>
-  <text x="{beside_score:.2f}" y="{SCORE_BASELINE:.2f}" font-size="{LABEL_SIZE}" fill="{CYAN}">{depth}</text>
+  {depth_svg}
 
   <g transform="{chart}">{chart_svg(data, pts)}
   </g>
   {players_svg(data, lay.players)}
   <g transform="{chart}">{marker_svg(data, pts, label=not icon)}
   </g>
-  {avg_icon_svg(data, icon, lay.chart_top) if pts else ""}
+  {avg_icon_svg(data, icon, lay.chart_top)}
 
   <text x="{PAD}" y="{lay.foot_baseline:.2f}" font-size="{LABEL_SIZE}" letter-spacing="{label_spacing}" fill="{CYAN}" filter="url(#shadow)">{escape(better)}</text>
   <text x="{CARD_W - PAD}" y="{lay.foot_baseline:.2f}" text-anchor="end" font-size="{LABEL_SIZE}" letter-spacing="{label_spacing}" fill="{CYAN}" filter="url(#shadow)">{total}</text>

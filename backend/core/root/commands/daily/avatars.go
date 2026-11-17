@@ -57,18 +57,24 @@ func download(url string, to string) error {
 
 const ICON_FILE = "guild.png"
 
-// writes <dir>/<guild>/images/<i>.png for each user, in order (dir is data/daily),
-// and the guild's icon as ICON_FILE. the folder is wiped first so a failed
-// download leaves a gap (grey disc), never a stale face. only failing to set up
-// the folder is an error; icon is ICON_FILE if it was saved, else empty
-func SaveAvatars(s *discordgo.Session, dailyDir string, g *discordgo.Guild, userIDs []string) (icon string, missing int, err error) {
+// makes a fresh images folder in dayDir (data/dailygen/<guild>/<day>) and
+// writes <i>.png for each user, in order, plus the guild's icon as ICON_FILE.
+// the folder is new each time, so concurrent renders never share it and a
+// failed download is a gap (grey disc), never someone else's face. the caller
+// removes it once the card is drawn. only failing to make it is an error;
+// icon is ICON_FILE if it was saved, else empty
+func SaveAvatars(s *discordgo.Session, dayDir string, g *discordgo.Guild, userIDs []string) (dir string, icon string, missing int, err error) {
 	guild := g.ID
-	dir := filepath.Join(dailyDir, guild, "images")
-	if err := os.RemoveAll(dir); err != nil {
-		return "", 0, err
+	if err := os.MkdirAll(dayDir, 0o755); err != nil {
+		return "", "", 0, err
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", 0, err
+	if dir, err = os.MkdirTemp(dayDir, "images-"); err != nil {
+		return "", "", 0, err
+	}
+	// mkdtemp is owner-only; the renderer (another container) reads it
+	if err := os.Chmod(dir, 0o755); err != nil {
+		os.RemoveAll(dir) //nolint
+		return "", "", 0, err
 	}
 	if url := pngIconURL(g); url != "" && download(url, filepath.Join(dir, ICON_FILE)) == nil {
 		icon = ICON_FILE
@@ -88,5 +94,5 @@ func SaveAvatars(s *discordgo.Session, dailyDir string, g *discordgo.Guild, user
 			missing++
 		}
 	}
-	return icon, missing, nil
+	return dir, icon, missing, nil
 }

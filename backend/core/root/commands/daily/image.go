@@ -6,9 +6,12 @@ import (
 	"krill-agg/root/info/dailygen"
 	"krill-agg/root/info/theme"
 	"krill-agg/root/krillion"
+	"krill-agg/root/managers/distributions"
 	"krill-agg/root/types"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -75,11 +78,71 @@ func remember(guild string, c cachedImage) {
 //   - cached: a recent card to reuse
 //   - follow: another call is rendering for this guild; link to its reply
 //   - lead: this call renders, and must call done when finished
+//
+// or, from claimPast, a past day's card: cached (its link still works), or
+// past (upload the card in dir, drawing it first if png is empty, and note
+// the new link)
 type ticket struct {
 	cached *cachedImage
 	follow *inflight
 	lead   *inflight
 	guild  string
+	past   bool
+	dir    string // past: data/dailygen/<guild>/<day>
+	png    string // past: the card already on disk, if any
+}
+
+// next to a past day's card: the discord link it was last posted at
+const LINK_FILE = "link"
+
+// discord's attachment links expire; this only asks for the headers
+var linkCheck = &http.Client{Timeout: 3 * time.Second}
+
+func linkAlive(url string) bool {
+	resp, err := linkCheck.Head(url)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close() //nolint
+	return resp.StatusCode == http.StatusOK
+}
+
+// a past day's card (dir is data/dailygen/<guild>/<day>): its last link if
+// that still works, else the card on disk to upload again, else nothing yet
+// (draw it). outside the one-render-per-guild claim, which is today's. a
+// finished day's card doesn't change, so it's drawn once and only re-uploaded
+func claimPast(dir string, day int) *ticket {
+	linkPath := filepath.Join(dir, LINK_FILE)
+	if raw, err := os.ReadFile(linkPath); err == nil {
+		url := strings.TrimSpace(string(raw))
+		if info, err := os.Stat(linkPath); err == nil && url != "" && linkAlive(url) {
+			return &ticket{cached: &cachedImage{day: day, at: info.ModTime(), url: url}}
+		}
+	}
+	t := &ticket{past: true, dir: dir}
+	png := filepath.Join(dir, fmt.Sprintf("daily_%d.png", day))
+	if _, err := os.Stat(png); err == nil {
+		t.png = png
+	}
+	return t
+}
+
+// notes where a past day's card now lives, replacing the old link
+func writeLink(dir, url string) error {
+	tmp, err := os.CreateTemp(dir, ".link-")
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.WriteString(url + "\n"); err != nil {
+		tmp.Close()           //nolint
+		os.Remove(tmp.Name()) //nolint
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name()) //nolint
+		return err
+	}
+	return os.Rename(tmp.Name(), filepath.Join(dir, LINK_FILE))
 }
 
 // one render per guild at a time. a cache hit wins (unless fresh); otherwise
@@ -151,11 +214,13 @@ func getGuild(s *discordgo.Session, guild string) *discordgo.Guild {
 	return &discordgo.Guild{ID: guild}
 }
 
-// fetches avatars and has dailygen render the card; returns the png's path on disk
+// "better than x% of …" for a day that's over
+const PAST_POPULATION = "that day's players"
+
+// fetches avatars and has dailygen render the card; returns the png's path on
+// disk. a day nobody played still gets a card (no average), as does one
+// krillion has no distribution for (a flat line, no percentile)
 func GenerateImage(s *discordgo.Session, bcp *types.BotCommandPackage, snap *Snapshot) (string, error) {
-	if len(snap.Entries) == 0 {
-		return "", errors.New("no players yet")
-	}
 	ids := make([]string, len(snap.Entries))
 	users := make([]dailygen.User, len(snap.Entries))
 	total := 0
@@ -164,30 +229,45 @@ func GenerateImage(s *discordgo.Session, bcp *types.BotCommandPackage, snap *Sna
 		users[j] = dailygen.User{Score: e.Score.Score}
 		total += e.Score.Score
 	}
-	mean := float64(total) / float64(len(snap.Entries))
+	req := dailygen.Request{
+		Guild:   snap.Guild,
+		Day:     snap.Day,
+		Dist:    []float64{},
+		Users:   users,
+		MaxPush: dailygen.MAX_PUSH,
+	}
+	hasDist := distributions.HasDist(snap.Dist)
+	if hasDist {
+		req.Dist = snap.Dist.Dist
+		req.Sample = snap.Dist.Sample
+	}
+	if len(snap.Entries) > 0 {
+		mean := float64(total) / float64(len(snap.Entries))
+		req.Mean = &mean
+		if hasDist {
+			pct := snap.Dist.Percentile(mean)
+			req.Percentile = &pct
+		}
+	}
+	if snap.Day < krillion.Today() {
+		req.Population = PAST_POPULATION
+	}
 
 	g := getGuild(s, snap.Guild)
-	dir := filepath.Join(bcp.DataDir, dailygen.DIR)
-	icon, _, err := SaveAvatars(s, dir, g, ids)
+	req.Title = g.Name
+	root := filepath.Join(bcp.DataDir, dailygen.DIR)
+	images, icon, _, err := SaveAvatars(s, filepath.Join(root, snap.Guild, strconv.Itoa(snap.Day)), g, ids)
 	if err != nil {
 		return "", fmt.Errorf("saving avatars: %v", err)
 	}
-	path, err := dailygen.Render(dailygen.Request{
-		Guild:      snap.Guild,
-		Title:      g.Name,
-		Icon:       icon,
-		Day:        snap.Day,
-		Mean:       mean,
-		Dist:       snap.Dist.Dist,
-		Percentile: snap.Dist.Percentile(mean),
-		Sample:     snap.Dist.Sample,
-		MaxPush:    dailygen.MAX_PUSH,
-		Users:      users,
-	})
+	defer os.RemoveAll(images) //nolint // only needed while drawing
+	req.Images = filepath.Base(images)
+	req.Icon = icon
+	path, err := dailygen.Render(req)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, path), nil
+	return filepath.Join(root, path), nil
 }
 
 func imageEmbed(description string, url string) *discordgo.MessageEmbed {
@@ -273,6 +353,7 @@ func channelSender(s *discordgo.Session, channel string) sender {
 // posts the report with the card as a second embed in the same message: a
 // cached card straight away, or a placeholder (so the board never waits) and
 // then an edit that attaches the png. t comes from claimFor or claimWait
+// (today's card), or claimPast (a past day's, from /stats)
 func withImage(s *discordgo.Session, post sender, bcp *types.BotCommandPackage, snap *Snapshot, report []*discordgo.MessageEmbed, t *ticket, opts ImageOptions) (*discordgo.Message, error) {
 	send := func(image *discordgo.MessageEmbed, files []*discordgo.File) (*discordgo.Message, error) {
 		embeds := append(append([]*discordgo.MessageEmbed{}, report...), image)
@@ -286,15 +367,19 @@ func withImage(s *discordgo.Session, post sender, bcp *types.BotCommandPackage, 
 	if err != nil {
 		return nil, err
 	}
-	t.lead.publish(jumpLink(snap.Guild, msg))
+	if t.lead != nil {
+		t.lead.publish(jumpLink(snap.Guild, msg))
+	}
 	fail := func(reason error) (*discordgo.Message, error) {
 		_, errEdit := send(imageEmbed("-# couldn't produce image: "+reason.Error(), ""), nil)
 		return msg, errors.Join(fmt.Errorf("daily image: %v", reason), errEdit)
 	}
 
-	path, err := GenerateImage(s, bcp, snap)
-	if err != nil {
-		return fail(err)
+	path := t.png // a past day's card already drawn: just upload it again
+	if path == "" {
+		if path, err = GenerateImage(s, bcp, snap); err != nil {
+			return fail(err)
+		}
 	}
 	f, err := os.Open(path)
 	if err != nil {
@@ -310,6 +395,12 @@ func withImage(s *discordgo.Session, post sender, bcp *types.BotCommandPackage, 
 	url := postedURL(final)
 	if url == "" {
 		return final, errors.New("daily image: posted, but discord returned no url to reuse")
+	}
+	if t.past {
+		if err := writeLink(t.dir, url); err != nil {
+			return final, fmt.Errorf("daily image: saving its link: %v", err)
+		}
+		return final, nil
 	}
 	remember(snap.Guild, cachedImage{day: snap.Day, at: time.Now(), url: url})
 	return final, nil
@@ -338,6 +429,7 @@ func PostDaily(s *discordgo.Session, bcp *types.BotCommandPackage, channel strin
 		return "", err
 	}
 	msg, err := withImage(s, channelSender(s, channel), bcp, snap, embeds, &t, opts)
+	err = errors.Join(err, refetchBoards(bcp, g))
 	if msg == nil {
 		return "", err
 	}

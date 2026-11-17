@@ -71,3 +71,31 @@ def test_end_labels_give_way_to_marker():
 def test_long_titles_are_cut_to_fit():
     svg = render_svg(CardData(title="A" * 80, day=124, mean=350, dist=SNAPSHOT))
     assert "A" * 80 not in svg and "A..." in svg
+
+
+def test_no_dist_draws_frame_without_curve_or_better_than():
+    svg = render_svg(CardData(title="Krill Club", day=5, mean=350, dist=[]))
+    assert "BETTER THAN" not in svg and "TOTAL" not in svg
+    assert ">100<" in svg and ">600<" in svg  # tick labels still there
+    assert "AVG" in svg  # marker still drawn, on the baseline
+
+
+def test_all_zero_dist_same_as_no_dist():
+    zeros = CardData(title="Krill Club", day=5, mean=350, dist=[0] * 20)
+    empty = CardData(title="Krill Club", day=5, mean=350, dist=[])
+    assert render_svg(zeros) == render_svg(empty)
+
+
+def test_null_mean_shows_dash_and_drops_marker():
+    data = CardData(title="Krill Club", day=5, mean=None, dist=SNAPSHOT)
+    svg = render_svg(data)
+    assert "—" in svg  # em dash score
+    assert "-3,710m" not in svg and "BETTER THAN" not in svg and "AVG" not in svg
+    png = render_png(data, scale=1)
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_no_dist_and_no_mean_renders_bare_frame():
+    svg = render_svg(CardData(title="Krill Club", day=5, mean=None, dist=[]))
+    assert "—" in svg and "GUILD AVERAGE" in svg
+    assert "BETTER THAN" not in svg and "AVG" not in svg and "TOTAL" not in svg

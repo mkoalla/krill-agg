@@ -22,3 +22,10 @@ func TestLine(t *testing.T) {
 		}
 	}
 }
+
+func TestQuestionsEmbed(t *testing.T) {
+	e := QuestionsEmbed([]string{"Name a fish", "Name a squid"})
+	if e.Title != "Today's Questions" || e.Description != "1. ||Name a fish||\n2. ||Name a squid||" {
+		t.Errorf("QuestionsEmbed() = %q / %q", e.Title, e.Description)
+	}
+}

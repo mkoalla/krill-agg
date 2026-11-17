@@ -1,6 +1,10 @@
 package daily
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -117,5 +121,45 @@ func TestPostedURL(t *testing.T) {
 	msg.Embeds = nil
 	if got := postedURL(msg); got != "https://cdn/a.png" {
 		t.Errorf("got %s, want the attachment's url", got)
+	}
+}
+
+func TestClaimPast(t *testing.T) {
+	live := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead {
+			t.Errorf("link check used %s; it should only ask for headers", r.Method)
+		}
+		if r.URL.Path == "/gone.png" {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer live.Close()
+	dir := t.TempDir()
+
+	// nothing on disk yet: draw it
+	if tk := claimPast(dir, 100); tk.cached != nil || !tk.past || tk.png != "" {
+		t.Fatalf("empty dir: %+v", tk)
+	}
+	// drawn before, link expired: upload the png again
+	png := filepath.Join(dir, "daily_100.png")
+	if err := os.WriteFile(png, []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeLink(dir, live.URL+"/gone.png"); err != nil {
+		t.Fatal(err)
+	}
+	if tk := claimPast(dir, 100); tk.cached != nil || tk.png != png {
+		t.Fatalf("dead link: %+v, want a re-upload of %s", tk, png)
+	}
+	// a working link is reused as-is
+	if err := writeLink(dir, live.URL+"/ok.png"); err != nil {
+		t.Fatal(err)
+	}
+	tk := claimPast(dir, 100)
+	if tk.cached == nil || tk.cached.url != live.URL+"/ok.png" {
+		t.Fatalf("live link not reused: %+v", tk)
+	}
+	if leftovers, _ := filepath.Glob(filepath.Join(dir, ".link-*")); len(leftovers) != 0 {
+		t.Errorf("temp files left: %v", leftovers)
 	}
 }

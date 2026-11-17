@@ -76,3 +76,26 @@ func (s Stats) Percentile(score float64) float64 {
 	below += s.Dist[bucket] * min(into, 1)
 	return 100 * below / float64(s.Sample)
 }
+
+// one of the day's seven questions
+type Prompt struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+}
+
+// GET /today: the puzzle being played right now
+type Puzzle struct {
+	Date      string   `json:"date"`
+	DayNumber int      `json:"dayNumber"`
+	Prompts   []Prompt `json:"prompts"`
+}
+
+// the puzzle being played right now (krillion only serves today's)
+func FetchPuzzle() (Puzzle, error) {
+	resp, err := client.Get(BASE_URL + "/today")
+	if err != nil {
+		return Puzzle{}, err
+	}
+	var p Puzzle
+	return p, decode(resp, &p)
+}
