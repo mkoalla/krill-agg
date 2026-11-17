@@ -34,45 +34,45 @@ func blacklistArgs(i *discordgo.InteractionCreate) (sub string, user string) {
 	return sub, user
 }
 
-// add/remove answer in plain text; show answers with an embed, where the
-// mentions just show profiles
+// every answer is an embed: mentions inside one just show the profile, never ping
 func blacklistReply(bcp *types.BotCommandPackage, i *discordgo.InteractionCreate) (*discordgo.InteractionResponseData, error) {
-	content, embed, err := blacklistAnswer(bcp, i)
+	embed, err := blacklistAnswer(bcp, i)
 	if err != nil {
 		return nil, err
 	}
-	data := &discordgo.InteractionResponseData{Content: content, AllowedMentions: &discordgo.MessageAllowedMentions{}}
-	if embed != nil {
-		data.Embeds = []*discordgo.MessageEmbed{embed}
-	}
-	return data, nil
+	return &discordgo.InteractionResponseData{Embeds: []*discordgo.MessageEmbed{embed}, AllowedMentions: &discordgo.MessageAllowedMentions{}}, nil
 }
 
-func blacklistAnswer(bcp *types.BotCommandPackage, i *discordgo.InteractionCreate) (string, *discordgo.MessageEmbed, error) {
+func blacklistAnswer(bcp *types.BotCommandPackage, i *discordgo.InteractionCreate) (*discordgo.MessageEmbed, error) {
 	guild := i.GuildID
 	sub, user := blacklistArgs(i)
 	switch sub {
 	case "add", "remove":
 		changed, err := bcp.Leaderboard.SetBlacklisted(guild, user, sub == "add")
 		if err != nil {
-			return "", nil, err
+			return nil, err
 		}
-		switch {
-		case sub == "add" && changed:
-			return fmt.Sprintf("<@%s> is now left off this server's leaderboards.", user), nil, nil
-		case sub == "add":
-			return fmt.Sprintf("<@%s> is already blacklisted.", user), nil, nil
-		case changed:
-			return fmt.Sprintf("<@%s> is back on this server's leaderboards.", user), nil, nil
-		default:
-			return fmt.Sprintf("<@%s> wasn't blacklisted.", user), nil, nil
-		}
+		return &discordgo.MessageEmbed{Description: blacklistChange(user, sub == "add", changed), Color: theme.ACCENT}, nil
 	default:
 		ids, err := bcp.Leaderboard.Blacklist(guild)
 		if err != nil {
-			return "", nil, err
+			return nil, err
 		}
-		return "", blacklistEmbed(ids), nil
+		return blacklistEmbed(ids), nil
+	}
+}
+
+// what add/remove did
+func blacklistChange(user string, add, changed bool) string {
+	switch {
+	case add && changed:
+		return fmt.Sprintf("<@%s> is now left off this server's leaderboards.", user)
+	case add:
+		return fmt.Sprintf("<@%s> is already blacklisted.", user)
+	case changed:
+		return fmt.Sprintf("<@%s> is back on this server's leaderboards.", user)
+	default:
+		return fmt.Sprintf("<@%s> wasn't blacklisted.", user)
 	}
 }
 
