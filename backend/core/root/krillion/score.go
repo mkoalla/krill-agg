@@ -50,8 +50,11 @@ func (p PlayerScore) Emojis() string {
 }
 
 // "Krillion #124 🦐"
+// the krill krillion signs its results with
+const HEADER_EMOJI = "🦐"
+
 func Header(day int) string {
-	return fmt.Sprintf("Krillion #%d 🦐", day)
+	return fmt.Sprintf("Krillion #%d %s", day, HEADER_EMOJI)
 }
 
 // the result laid out like the game's own share text

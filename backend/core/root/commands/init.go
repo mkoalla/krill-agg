@@ -6,6 +6,7 @@ import (
 	"krill-agg/root/commands/daily"
 	"krill-agg/root/commands/day"
 	"krill-agg/root/commands/help"
+	"krill-agg/root/commands/krill"
 	"krill-agg/root/commands/modrank"
 	"krill-agg/root/commands/ping"
 	"krill-agg/root/commands/rank"
@@ -17,6 +18,7 @@ import (
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/managers/components"
 	"krill-agg/root/managers/distributions"
+	"krill-agg/root/managers/krills"
 	"krill-agg/root/managers/leaderboard"
 	"krill-agg/root/managers/pages"
 	"krill-agg/root/managers/questions"
@@ -35,6 +37,7 @@ type RegisterReqs struct {
 	Leaderboard   *leaderboard.Manager
 	Questions     *questions.Manager
 	Distributions *distributions.Manager
+	Krills        *krills.Manager
 	Scores        *scores.ScoreManager
 	Tracking      *tracking.TrackingManager
 	DataDir       string
@@ -47,6 +50,7 @@ var registers = []func(*types.BotCommandPackage){
 	daily.Register,
 	day.Register,
 	help.Register,
+	krill.Register,
 	modrank.Register,
 	ping.Register,
 	rank.Register,
@@ -69,6 +73,7 @@ func Register(reqs RegisterReqs) *types.BotCommandPackage {
 		Leaderboard:     reqs.Leaderboard,
 		Questions:       reqs.Questions,
 		Distributions:   reqs.Distributions,
+		Krills:          reqs.Krills,
 		Scores:          reqs.Scores,
 		Tracking:        reqs.Tracking,
 		DataDir:         reqs.DataDir,

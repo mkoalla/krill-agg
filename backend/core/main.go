@@ -15,6 +15,7 @@ import (
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/managers/components"
 	"krill-agg/root/managers/distributions"
+	"krill-agg/root/managers/krills"
 	"krill-agg/root/managers/leaderboard"
 	"krill-agg/root/managers/pages"
 	"krill-agg/root/managers/questions"
@@ -55,6 +56,7 @@ const (
 	LEADERBOARD_PATH   = DATA_PATH + "leaderboard.db"
 	QUESTIONS_PATH     = DATA_PATH + "questions.db"
 	DISTRIBUTIONS_PATH = DATA_PATH + "distributions.db"
+	KRILLS_PATH        = DATA_PATH + "krills.db"
 )
 
 func setEnvironmentVars() (token string, mode string) {
@@ -115,6 +117,14 @@ func getManDistributions() *distributions.Manager {
 	man, err := distributions.New(DISTRIBUTIONS_PATH)
 	if err != nil {
 		logger.Panic(fmt.Sprintf("Couldn't init distributions manager: %v", err), audit.LogGroup.INIT)
+		return nil
+	}
+	return man
+}
+func getManKrills() *krills.Manager {
+	man, err := krills.New(KRILLS_PATH)
+	if err != nil {
+		logger.Panic(fmt.Sprintf("Couldn't init krills manager: %v", err), audit.LogGroup.INIT)
 		return nil
 	}
 	return man
@@ -287,6 +297,7 @@ func main() {
 		Leaderboard:   getManLeaderboard(scoreMan),
 		Questions:     getManQuestions(),
 		Distributions: getManDistributions(),
+		Krills:        getManKrills(),
 		Scores:        scoreMan,
 		Tracking:      getManTracking(),
 		DataDir:       DATA_PATH,

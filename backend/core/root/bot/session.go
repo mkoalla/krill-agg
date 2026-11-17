@@ -298,6 +298,7 @@ func EndSession(session *Session) {
 	defer session.Package.Leaderboard.Close()   //nolint
 	defer session.Package.Questions.Close()     //nolint
 	defer session.Package.Distributions.Close() //nolint
+	defer session.Package.Krills.Close()        //nolint
 
 	defer func() {
 		if err := session.DGSession.Close(); err != nil {

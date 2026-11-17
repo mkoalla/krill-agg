@@ -151,6 +151,8 @@ func Report(bcp *types.BotCommandPackage, guild string, day int) ([]*discordgo.M
 	// saved here so /stats can show them later; if krillion won't say, any
 	// saved copy still shows
 	bcp.Questions.Fetch(day) //nolint // optional: a failure only loses the embed
+	// today's krillion answers too, while krillion still reveals them (/krill)
+	bcp.Krills.Fetch(day) //nolint // optional: /krill fetches today's itself
 	if q := stats.Questions(bcp, day); q != nil {
 		embeds = append(embeds, q)
 	}

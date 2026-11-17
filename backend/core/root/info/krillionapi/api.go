@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/google/uuid"
@@ -98,4 +99,39 @@ func FetchPuzzle() (Puzzle, error) {
 	}
 	var p Puzzle
 	return p, decode(resp, &p)
+}
+
+// one accepted answer from GET /reveal. Quip is krillion's note on it; most
+// answers have none (the key is left out), so it's nil then
+type RevealAnswer struct {
+	Answer  string   `json:"answer"`
+	Aliases []string `json:"aliases"`
+	Tier    string   `json:"tier"`
+	Score   int      `json:"score"`
+	Quip    *string  `json:"quip"`
+}
+
+type RevealPrompt struct {
+	ID      string         `json:"id"`
+	Text    string         `json:"text"`
+	Answers []RevealAnswer `json:"answers"`
+}
+
+// GET /reveal: a day's whole answer key, every accepted answer per question
+type Reveal struct {
+	Date    string         `json:"date"`
+	Prompts []RevealPrompt `json:"prompts"`
+}
+
+// the top tier's score (krillion answers)
+const KRILLION_SCORE = 100
+
+// the answer key for date (krillion.DateOf). krillion serves today's
+func FetchReveal(date string) (Reveal, error) {
+	resp, err := client.Get(BASE_URL + "/reveal?date=" + url.QueryEscape(date))
+	if err != nil {
+		return Reveal{}, err
+	}
+	var r Reveal
+	return r, decode(resp, &r)
 }

@@ -5,6 +5,7 @@ import (
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/managers/components"
 	"krill-agg/root/managers/distributions"
+	"krill-agg/root/managers/krills"
 	"krill-agg/root/managers/leaderboard"
 	"krill-agg/root/managers/pages"
 	"krill-agg/root/managers/questions"
@@ -38,6 +39,7 @@ type BotCommandPackage struct {
 	Leaderboard     *leaderboard.Manager
 	Questions       *questions.Manager
 	Distributions   *distributions.Manager
+	Krills          *krills.Manager
 	Scores          *scores.ScoreManager
 	Tracking        *tracking.TrackingManager
 	DataDir         string // the shared data mount (also seen by dailygen)
