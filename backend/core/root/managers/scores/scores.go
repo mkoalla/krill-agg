@@ -134,8 +134,9 @@ func (man *ScoreManager) Day(guild guildID, day int) ([]Entry, error) {
 
 // every result in a guild, any day, unsorted, leaving out the excluded users
 // (what the leaderboards are built from)
-func (man *ScoreManager) Guild(guild guildID, exclude []uid) ([]Entry, error) {
-	rows, err := man.db.Guild(guild, exclude)
+// from krillion #minDay on (1: every day)
+func (man *ScoreManager) Guild(guild guildID, exclude []uid, minDay int) ([]Entry, error) {
+	rows, err := man.db.Guild(guild, exclude, minDay)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +151,7 @@ func (man *ScoreManager) Guild(guild guildID, exclude []uid) ([]Entry, error) {
 	return entries, nil
 }
 
-// everyone who has played in the guild, except the excluded
-func (man *ScoreManager) Players(guild guildID, exclude []uid) ([]uid, error) {
-	return man.db.Players(guild, exclude)
+// everyone who has played in the guild from krillion #minDay on, except the excluded
+func (man *ScoreManager) Players(guild guildID, exclude []uid, minDay int) ([]uid, error) {
+	return man.db.Players(guild, exclude, minDay)
 }

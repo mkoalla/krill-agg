@@ -119,15 +119,20 @@ func avatarURL(s *discordgo.Session, guild, user string) string {
 
 // one board's pages. nothing is built until a page is shown; the icon (the
 // board's #1) is looked up once and shared by its pages
-func boardPages(s *discordgo.Session, bcp *types.BotCommandPackage, guild, name, board string, players int) []pages.Page {
+// "🏆 Best Scores (1 Week) in <guild>"
+func boardTitle(what, period, guildName string) string {
+	return fmt.Sprintf("🏆 %s (%s) in %s", what, leaderboard.PERIOD_LABELS[period], guildName)
+}
+
+func boardPages(s *discordgo.Session, bcp *types.BotCommandPackage, guild, name, board, period string, players int) []pages.Page {
 	info := BOARD_INFO[board]
-	title := fmt.Sprintf("🏆 %s in %s", info.title, name)
+	title := boardTitle(info.title, period, name)
 	var iconOnce sync.Once
 	var icon string
 	book := make([]pages.Page, pageCount(players))
 	for p := range book {
 		book[p] = func(at pages.Info) (*discordgo.MessageEmbed, error) {
-			rows, _, err := bcp.Leaderboard.Board(guild, board)
+			rows, _, err := bcp.Leaderboard.Board(guild, board, period)
 			if err != nil {
 				return nil, err
 			}
@@ -151,9 +156,9 @@ func boardPages(s *discordgo.Session, bcp *types.BotCommandPackage, guild, name,
 const BLACKLISTED = "You're left off this server's leaderboards."
 
 // the caller's rank on every board
-func selfPage(s *discordgo.Session, bcp *types.BotCommandPackage, guild, name, user string) pages.Page {
+func selfPage(s *discordgo.Session, bcp *types.BotCommandPackage, guild, name, user, period string) pages.Page {
 	return func(at pages.Info) (*discordgo.MessageEmbed, error) {
-		title := fmt.Sprintf("🏆 Your Ranks in %s", name)
+		title := boardTitle("Your Ranks", period, name)
 		if banned, err := bcp.Leaderboard.IsBlacklisted(guild, user); err != nil {
 			return nil, err
 		} else if banned {
@@ -161,7 +166,7 @@ func selfPage(s *discordgo.Session, bcp *types.BotCommandPackage, guild, name, u
 		}
 		var lines []string
 		for _, board := range leaderboard.BOARDS {
-			rows, _, err := bcp.Leaderboard.Board(guild, board)
+			rows, _, err := bcp.Leaderboard.Board(guild, board, period)
 			if err != nil {
 				return nil, err
 			}
@@ -191,13 +196,13 @@ func selfLine(info boardInfo, rows []Row, user string) (string, bool) {
 
 // the book for a /top choice: one board, every board back to back (each from
 // a fresh page), or the caller's ranks
-func book(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordgo.InteractionCreate, choice string) ([]pages.Page, error) {
+func book(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordgo.InteractionCreate, choice, period string) ([]pages.Page, error) {
 	g := i.GuildID
 	name := guildName(s, g)
 	if choice == SELF {
-		return []pages.Page{selfPage(s, bcp, g, name, i.Member.User.ID)}, nil
+		return []pages.Page{selfPage(s, bcp, g, name, i.Member.User.ID, period)}, nil
 	}
-	players, err := bcp.Leaderboard.Players(g)
+	players, err := bcp.Leaderboard.Players(g, period)
 	if err != nil {
 		return nil, err
 	}
@@ -207,22 +212,23 @@ func book(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordgo.Inter
 	}
 	var all []pages.Page
 	for _, board := range boards {
-		all = append(all, boardPages(s, bcp, g, name, board, players)...)
+		all = append(all, boardPages(s, bcp, g, name, board, period, players)...)
 	}
 	return all, nil
 }
 
-func choiceOf(i *discordgo.InteractionCreate) string {
+// a string option's value, or fallback when it wasn't given
+func option(i *discordgo.InteractionCreate, name, fallback string) string {
 	for _, opt := range i.ApplicationCommandData().Options {
-		if opt.Name == "type" {
+		if opt.Name == name {
 			return opt.StringValue()
 		}
 	}
-	return ALL
+	return fallback
 }
 
-func open(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordgo.InteractionCreate, choice string) error {
-	b, err := book(s, bcp, i, choice)
+func open(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordgo.InteractionCreate, choice, period string) error {
+	b, err := book(s, bcp, i, choice, period)
 	if err != nil {
 		return err
 	}
@@ -238,6 +244,10 @@ func Register(bcp *types.BotCommandPackage) {
 		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: board, Value: board})
 	}
 	choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: "self", Value: SELF})
+	periods := make([]*discordgo.ApplicationCommandOptionChoice, len(leaderboard.PERIODS))
+	for j, p := range leaderboard.PERIODS {
+		periods[j] = &discordgo.ApplicationCommandOptionChoice{Name: leaderboard.PERIOD_LABELS[p], Value: p}
+	}
 
 	(*bcp.Handles)["top"] = CommandInfo{
 		DGInfo: &discordgo.ApplicationCommand{
@@ -248,11 +258,16 @@ func Register(bcp *types.BotCommandPackage) {
 				Name:        "type",
 				Description: "which board (default: all of them)",
 				Choices:     choices,
+			}, {
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "since",
+				Description: "how far back to count (default: all-time)",
+				Choices:     periods,
 			}},
 		},
 		Metadata: types.CommandMetadata{MinTrustLevel: authorize.DEFAULT},
 		Callback: func(s *discordgo.Session, i *discordgo.InteractionCreate) error {
-			return open(s, bcp, i, choiceOf(i))
+			return open(s, bcp, i, option(i, "type", ALL), option(i, "since", leaderboard.ALLTIME))
 		},
 	}
 	(*bcp.Handles)["refetchtop"] = CommandInfo{
@@ -265,7 +280,7 @@ func Register(bcp *types.BotCommandPackage) {
 			if err := bcp.Leaderboard.Refetch(i.GuildID); err != nil {
 				return err
 			}
-			return open(s, bcp, i, ALL)
+			return open(s, bcp, i, ALL, leaderboard.ALLTIME)
 		},
 	}
 }

@@ -119,10 +119,11 @@ func notIn(exclude []string) (string, []any) {
 	return " AND user_id NOT IN (" + strings.TrimSuffix(strings.Repeat("?, ", len(exclude)), ", ") + ")", args
 }
 
-// every result in a guild, any day, except the excluded users' (the leaderboards' source)
-func (db *ScoreDB) Guild(guild string, exclude []string) ([]Row, error) {
+// every result in a guild from krillion #minDay on, except the excluded
+// users' (the leaderboards' source)
+func (db *ScoreDB) Guild(guild string, exclude []string, minDay int) ([]Row, error) {
 	clause, args := notIn(exclude)
-	iter, err := db.file.Query(`SELECT user_id, day, emojis FROM scores WHERE guild_id = ?`+clause+`;`, append([]any{guild}, args...)...)
+	iter, err := db.file.Query(`SELECT user_id, day, emojis FROM scores WHERE guild_id = ? AND day >= ?`+clause+`;`, append([]any{guild, minDay}, args...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -141,10 +142,10 @@ func (db *ScoreDB) Guild(guild string, exclude []string) ([]Row, error) {
 	}
 }
 
-// everyone with at least one result in the guild, except the excluded
-func (db *ScoreDB) Players(guild string, exclude []string) ([]string, error) {
+// everyone with a result in the guild from krillion #minDay on, except the excluded
+func (db *ScoreDB) Players(guild string, exclude []string, minDay int) ([]string, error) {
 	clause, args := notIn(exclude)
-	iter, err := db.file.Query(`SELECT DISTINCT user_id FROM scores WHERE guild_id = ?`+clause+`;`, append([]any{guild}, args...)...)
+	iter, err := db.file.Query(`SELECT DISTINCT user_id FROM scores WHERE guild_id = ? AND day >= ?`+clause+`;`, append([]any{guild, minDay}, args...)...)
 	if err != nil {
 		return nil, err
 	}

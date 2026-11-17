@@ -13,20 +13,21 @@ type fakeSource struct {
 	entries  []scores.Entry
 	scans    int
 	excluded []string // what the last query was asked to leave out
+	minDay   int      // and the first day it was asked for
 }
 
-func (f *fakeSource) Guild(_ string, exclude []string) ([]scores.Entry, error) {
+func (f *fakeSource) Guild(_ string, exclude []string, minDay int) ([]scores.Entry, error) {
 	f.scans++
-	f.excluded = exclude
-	return f.entries, nil // ignores exclude, so the Go-side check is what's tested
+	f.excluded, f.minDay = exclude, minDay
+	return f.entries, nil // ignores both, so the Go-side checks are what's tested
 }
 
-func (f *fakeSource) Players(_ string, exclude []string) ([]string, error) {
-	f.excluded = exclude
+func (f *fakeSource) Players(_ string, exclude []string, minDay int) ([]string, error) {
+	f.excluded, f.minDay = exclude, minDay
 	seen := map[string]bool{}
 	var ids []string
 	for _, e := range f.entries {
-		if !seen[e.UserID] {
+		if e.Score.Day >= minDay && !seen[e.UserID] {
 			seen[e.UserID] = true
 			ids = append(ids, e.UserID)
 		}
@@ -105,17 +106,17 @@ func TestLazyHourlyCache(t *testing.T) {
 	clock := time.Date(2026, 11, 16, 15, 10, 0, 0, time.UTC)
 	man.now = func() time.Time { return clock }
 
-	if n, _ := man.Players("g"); n != 3 || src.scans != 0 {
+	if n, _ := man.Players("g", ALLTIME); n != 3 || src.scans != 0 {
 		t.Fatalf("Players() = %d after %d scans; should count without building", n, src.scans)
 	}
-	if _, _, err := man.Board("g", BEST); err != nil || src.scans != 1 {
+	if _, _, err := man.Board("g", BEST, ALLTIME); err != nil || src.scans != 1 {
 		t.Fatalf("first Board: %v, %d scans", err, src.scans)
 	}
-	man.Board("g", BEST) //nolint
+	man.Board("g", BEST, ALLTIME) //nolint
 	if src.scans != 1 {
 		t.Fatal("same-hour Board rebuilt")
 	}
-	man.Board("g", PLAYED) //nolint
+	man.Board("g", PLAYED, ALLTIME) //nolint
 	if src.scans != 2 {
 		t.Fatal("each board is built on its own")
 	}
@@ -126,14 +127,14 @@ func TestLazyHourlyCache(t *testing.T) {
 	man = newManager(db, src)
 	man.now = func() time.Time { return clock }
 	defer man.Close() //nolint
-	rows, at, err := man.Board("g", BEST)
+	rows, at, err := man.Board("g", BEST, ALLTIME)
 	if err != nil || src.scans != 2 || len(rows) != 3 || rows[0].Rank != 1 || !at.Equal(clock.Truncate(time.Second)) {
 		t.Fatalf("after restart: %d rows, at %v, %d scans, %v", len(rows), at, src.scans, err)
 	}
 
 	// next hour: stale, rebuilt
 	clock = clock.Add(time.Hour)
-	man.Board("g", BEST) //nolint
+	man.Board("g", BEST, ALLTIME) //nolint
 	if src.scans != 3 {
 		t.Fatalf("stale board not rebuilt (%d scans)", src.scans)
 	}
@@ -156,18 +157,18 @@ func TestBlacklist(t *testing.T) {
 	man := newManager(db, src)
 	defer man.Close() //nolint
 
-	man.Board("g", BEST) //nolint
+	man.Board("g", BEST, ALLTIME) //nolint
 	if changed, err := man.SetBlacklisted("g", "a", true); !changed || err != nil {
 		t.Fatalf("add: %v %v", changed, err)
 	}
 	if changed, _ := man.SetBlacklisted("g", "a", true); changed {
 		t.Error("adding twice reported a change")
 	}
-	if n, _ := man.Players("g"); n != 2 {
+	if n, _ := man.Players("g", ALLTIME); n != 2 {
 		t.Errorf("Players() = %d with a blacklisted, want 2", n)
 	}
 	// the cached board was dropped, so this rebuilds without a
-	rows, _, _ := man.Board("g", BEST)
+	rows, _, _ := man.Board("g", BEST, ALLTIME)
 	if len(src.excluded) != 1 || src.excluded[0] != "a" {
 		t.Errorf("query wasn't asked to exclude a: %v", src.excluded)
 	}
@@ -189,7 +190,57 @@ func TestBlacklist(t *testing.T) {
 	if changed, _ := man2.SetBlacklisted("g", "a", false); !changed {
 		t.Error("remove reported no change")
 	}
-	if rows, _, _ := man2.Board("g", BEST); len(rows) != 3 {
+	if rows, _, _ := man2.Board("g", BEST, ALLTIME); len(rows) != 3 {
 		t.Errorf("after removal %d rows, want 3", len(rows))
+	}
+}
+
+func TestMinDay(t *testing.T) {
+	// #124 is 2026-11-16; #1 is 2026-07-16
+	cases := map[string]int{
+		WEEK:    118, // the 10th through the 16th
+		MONTH:   94,  // 2026-10-17 on
+		MONTHS3: 33,  // 2026-08-17 on
+		MONTHS6: 1,   // before #1
+		YTD:     1,   // before #1
+		ALLTIME: 1,
+		"bogus": 1,
+	}
+	for period, want := range cases {
+		if got := MinDay(period, 124); got != want {
+			t.Errorf("MinDay(%s, 124) = %d, want %d", period, got, want)
+		}
+	}
+	// the next january: YTD starts over
+	jan2 := krillion.DayAt(time.Date(2027, time.January, 2, 12, 0, 0, 0, krillion.RESET_ZONE))
+	if got := MinDay(YTD, jan2); got != jan2-1 {
+		t.Errorf("YTD on jan 2 starts at %d, want %d", got, jan2-1)
+	}
+}
+
+func TestPeriodBoards(t *testing.T) {
+	db, err := boarddb.New(filepath.Join(t.TempDir(), "leaderboard.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := &fakeSource{entries: fixture(t)} // games on days 1-3
+	man := newManager(db, src)
+	defer man.Close()                                                        //nolint
+	man.now = func() time.Time { return krillion.StartOf(9).Add(time.Hour) } // today #9: a week is 3..9
+
+	rows, _, err := man.Board("g", PLAYED, WEEK)
+	if err != nil || src.minDay != 3 {
+		t.Fatalf("week board: %v, queried from #%d", err, src.minDay)
+	}
+	// only day 3's games count: b and c, one each
+	if got := users(rows); len(got) != 2 {
+		t.Errorf("week played = %v (%+v)", got, rows)
+	}
+	all, _, _ := man.Board("g", PLAYED, ALLTIME)
+	if len(all) != 3 || src.minDay != 1 {
+		t.Errorf("all-time played = %v, queried from #%d", users(all), src.minDay)
+	}
+	if n, _ := man.Players("g", WEEK); n != 2 {
+		t.Errorf("Players(week) = %d, want 2", n)
 	}
 }

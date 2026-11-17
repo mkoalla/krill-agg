@@ -8,6 +8,7 @@ package leaderboard
 import (
 	"cmp"
 	"krill-agg/root/datas/boarddb"
+	"krill-agg/root/krillion"
 	"krill-agg/root/managers/scores"
 	"maps"
 	"slices"
@@ -29,9 +30,9 @@ var BOARDS = []string{BEST, WORST, AVERAGE, PLAYED}
 
 // where boards are built from
 type source interface {
-	// both leave out the excluded users in their query
-	Guild(guild string, exclude []string) ([]scores.Entry, error)
-	Players(guild string, exclude []string) ([]string, error)
+	// both leave out the excluded users, and days before minDay, in their query
+	Guild(guild string, exclude []string, minDay int) ([]scores.Entry, error)
+	Players(guild string, exclude []string, minDay int) ([]string, error)
 }
 
 type cached struct {
@@ -43,10 +44,12 @@ type Manager struct {
 	mu     sync.Mutex // also keeps two viewers from building the same board at once
 	db     *boarddb.BoardDB
 	scores source
-	cache  map[string]map[string]*cached // guild -> board
-	banned map[string]map[string]bool    // guild -> blacklisted users, loaded on first use
+	cache  map[string]map[boardKey]*cached // guild -> board and period
+	banned map[string]map[string]bool      // guild -> blacklisted users, loaded on first use
 	now    func() time.Time
 }
+
+type boardKey struct{ board, period string }
 
 func New(path string, scores *scores.ScoreManager) (*Manager, error) {
 	db, err := boarddb.New(path)
@@ -57,7 +60,7 @@ func New(path string, scores *scores.ScoreManager) (*Manager, error) {
 }
 
 func newManager(db *boarddb.BoardDB, src source) *Manager {
-	return &Manager{db: db, scores: src, cache: map[string]map[string]*cached{}, banned: map[string]map[string]bool{}, now: time.Now}
+	return &Manager{db: db, scores: src, cache: map[string]map[boardKey]*cached{}, banned: map[string]map[string]bool{}, now: time.Now}
 }
 
 func (man *Manager) Close() error { return man.db.Close() }
@@ -70,67 +73,81 @@ func NextUpdate(t time.Time) time.Time { return HourStart(t).Add(time.Hour) }
 
 func (man *Manager) fresh(at time.Time) bool { return !at.Before(HourStart(man.now())) }
 
-// the guild's board, ranked from 1, and when it was built. built only if
-// there's nothing from this hour in memory or in leaderboard.db
-func (man *Manager) Board(guild, board string) ([]Row, time.Time, error) {
+// the guild's board over a period (see PERIODS), ranked from 1, and when it
+// was built. built only if there's nothing from this hour in memory or in
+// leaderboard.db. the hourly refresh also moves the period's window when
+// the day turns over
+func (man *Manager) Board(guild, board, period string) ([]Row, time.Time, error) {
 	man.mu.Lock()
 	defer man.mu.Unlock()
-	if c, ok := man.cache[guild][board]; ok && man.fresh(c.at) {
+	if c, ok := man.cache[guild][boardKey{board, period}]; ok && man.fresh(c.at) {
 		return c.rows, c.at, nil
 	}
-	if f, ok, err := man.db.LastFetch(guild, board); err != nil {
+	if f, ok, err := man.db.LastFetch(guild, board, period); err != nil {
 		return nil, time.Time{}, err
 	} else if ok && man.fresh(f.At) {
-		rows, err := man.db.All(guild, board)
+		rows, err := man.db.All(guild, board, period)
 		if err != nil {
 			return nil, time.Time{}, err
 		}
-		man.remember(guild, board, rows, f.At)
+		man.remember(guild, board, period, rows, f.At)
 		return rows, f.At, nil
 	}
-	return man.rebuildLocked(guild, board)
+	return man.rebuildLocked(guild, board, period)
+}
+
+// the first krillion # the period counts, as of now
+func (man *Manager) minDay(period string) int {
+	return MinDay(period, krillion.DayAt(man.now()))
 }
 
 // caller holds the lock
-func (man *Manager) rebuildLocked(guild, board string) ([]Row, time.Time, error) {
+func (man *Manager) rebuildLocked(guild, board, period string) ([]Row, time.Time, error) {
 	banned, err := man.bannedLocked(guild)
 	if err != nil {
 		return nil, time.Time{}, err
 	}
-	entries, err := man.scores.Guild(guild, slices.Collect(maps.Keys(banned)))
+	minDay := man.minDay(period)
+	entries, err := man.scores.Guild(guild, slices.Collect(maps.Keys(banned)), minDay)
 	if err != nil {
 		return nil, time.Time{}, err
 	}
-	// the query already left them out; this is just a second check
-	entries = slices.DeleteFunc(entries, func(e scores.Entry) bool { return banned[e.UserID] })
-	rows := Build(board, entries)
+	// the query already left them out; this is just a second check. a copy,
+	// so the source's slice is never touched
+	kept := make([]scores.Entry, 0, len(entries))
+	for _, e := range entries {
+		if !banned[e.UserID] && e.Score.Day >= minDay {
+			kept = append(kept, e)
+		}
+	}
+	rows := Build(board, kept)
 	at := man.now()
-	if err := man.db.Replace(guild, board, rows, at); err != nil {
+	if err := man.db.Replace(guild, board, period, rows, at); err != nil {
 		return nil, time.Time{}, err
 	}
 	// ranks as stored, so a board read back from the db matches
 	for j := range rows {
 		rows[j].Rank = j + 1
 	}
-	man.remember(guild, board, rows, at)
+	man.remember(guild, board, period, rows, at)
 	return rows, at, nil
 }
 
-func (man *Manager) remember(guild, board string, rows []Row, at time.Time) {
+func (man *Manager) remember(guild, board, period string, rows []Row, at time.Time) {
 	if man.cache[guild] == nil {
-		man.cache[guild] = map[string]*cached{}
+		man.cache[guild] = map[boardKey]*cached{}
 	}
-	man.cache[guild][board] = &cached{rows: rows, at: at}
+	man.cache[guild][boardKey{board, period}] = &cached{rows: rows, at: at}
 }
 
-// how many rows the guild's boards have (every board has one per player),
-// without building one: a fresh board's count if there is one, else the
-// players in scores.db who aren't blacklisted
-func (man *Manager) Players(guild string) (int, error) {
+// how many rows the guild's boards over a period have (every board has one
+// per player), without building one: a fresh board's count if there is one,
+// else the players in scores.db who aren't blacklisted
+func (man *Manager) Players(guild, period string) (int, error) {
 	man.mu.Lock()
 	defer man.mu.Unlock()
-	for _, c := range man.cache[guild] {
-		if man.fresh(c.at) {
+	for key, c := range man.cache[guild] {
+		if key.period == period && man.fresh(c.at) {
 			return len(c.rows), nil
 		}
 	}
@@ -138,7 +155,7 @@ func (man *Manager) Players(guild string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	ids, err := man.scores.Players(guild, slices.Collect(maps.Keys(banned)))
+	ids, err := man.scores.Players(guild, slices.Collect(maps.Keys(banned)), man.minDay(period))
 	if err != nil {
 		return 0, err
 	}
@@ -201,13 +218,17 @@ func (man *Manager) SetBlacklisted(guild, user string, on bool) (changed bool, e
 	return true, nil
 }
 
-// drops the guild's cached boards and rebuilds every one now
+// drops every cached board of the guild (memory and db, every period) and
+// rebuilds the all-time ones now; the other periods rebuild when viewed
 func (man *Manager) Refetch(guild string) error {
 	man.mu.Lock()
 	defer man.mu.Unlock()
 	delete(man.cache, guild)
+	if err := man.db.Invalidate(guild); err != nil {
+		return err
+	}
 	for _, board := range BOARDS {
-		if _, _, err := man.rebuildLocked(guild, board); err != nil {
+		if _, _, err := man.rebuildLocked(guild, board, ALLTIME); err != nil {
 			return err
 		}
 	}

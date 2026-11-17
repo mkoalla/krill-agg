@@ -41,15 +41,19 @@ func New(path string) (*BoardDB, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := dropUnperiodized(file); err != nil {
+		return nil, err
+	}
 	for _, board := range BOARDS {
 		if _, err := file.Exec(`CREATE TABLE IF NOT EXISTS ` + board + ` (
 			guild_id TEXT    NOT NULL,
+			period   TEXT    NOT NULL,
 			rank     INTEGER NOT NULL,
 			user_id  TEXT    NOT NULL,
 			value    REAL    NOT NULL,
 			day      INTEGER,
 			emojis   TEXT,
-			PRIMARY KEY (guild_id, rank)
+			PRIMARY KEY (guild_id, period, rank)
 		) WITHOUT ROWID;`); err != nil {
 			return nil, err
 		}
@@ -65,13 +69,38 @@ func New(path string) (*BoardDB, error) {
 	if _, err := file.Exec(`CREATE TABLE IF NOT EXISTS fetches (
 		guild_id   TEXT    NOT NULL,
 		board      TEXT    NOT NULL,
+		period     TEXT    NOT NULL,
 		fetched_at INTEGER NOT NULL,
 		rows       INTEGER NOT NULL,
-		PRIMARY KEY (guild_id, board)
+		PRIMARY KEY (guild_id, board, period)
 	) WITHOUT ROWID;`); err != nil {
 		return nil, err
 	}
 	return &BoardDB{file: file}, nil
+}
+
+// boards from before they were kept per period. they're only a cache (rebuilt
+// from scores.db on demand), so drop them and their fetches for recreating;
+// the blacklist isn't touched
+func dropUnperiodized(file *sqlite.SQLiteDB) error {
+	iter, err := file.Query(`SELECT COUNT(*) FROM pragma_table_info('fetches') WHERE name = 'period';`)
+	if err != nil {
+		return err
+	}
+	var has int
+	_, err = iter.NextScan(&has)
+	iter.Close() //nolint
+	if err != nil || has > 0 {
+		return err
+	}
+	return file.Tx(func(tx *sqlite.Tx) error {
+		for _, table := range append(slices.Clone(BOARDS), "fetches") {
+			if _, err := tx.Exec(`DROP TABLE IF EXISTS ` + table + `;`); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (db *BoardDB) Close() error { return db.file.Close() }
@@ -84,9 +113,10 @@ func checkBoard(board string) error {
 	return nil
 }
 
-// replaces the guild's board with rows (ranked in order, from 1) and records
-// the fetch. one transaction, so a reader sees the old board or the new one
-func (db *BoardDB) Replace(guild, board string, rows []Row, at time.Time) error {
+// replaces the guild's board for a period with rows (ranked in order, from 1)
+// and records the fetch. one transaction, so a reader sees the old board or
+// the new one
+func (db *BoardDB) Replace(guild, board, period string, rows []Row, at time.Time) error {
 	if err := checkBoard(board); err != nil {
 		return err
 	}
@@ -96,27 +126,27 @@ func (db *BoardDB) Replace(guild, board string, rows []Row, at time.Time) error 
 		if r.Emojis != "" {
 			day, emojis = r.Day, r.Emojis
 		}
-		args = append(args, guild, j+1, r.UserID, r.Value, day, emojis)
+		args = append(args, guild, period, j+1, r.UserID, r.Value, day, emojis)
 	}
 	return db.file.Tx(func(tx *sqlite.Tx) error {
-		if _, err := tx.Exec(`DELETE FROM `+board+` WHERE guild_id = ?;`, guild); err != nil {
+		if _, err := tx.Exec(`DELETE FROM `+board+` WHERE guild_id = ? AND period = ?;`, guild, period); err != nil {
 			return err
 		}
 		if len(args) > 0 {
-			if err := tx.InsertRows(`INSERT INTO `+board+` (guild_id, rank, user_id, value, day, emojis) VALUES`, 6, args); err != nil {
+			if err := tx.InsertRows(`INSERT INTO `+board+` (guild_id, period, rank, user_id, value, day, emojis) VALUES`, 7, args); err != nil {
 				return err
 			}
 		}
-		_, err := tx.Exec(`INSERT INTO fetches (guild_id, board, fetched_at, rows) VALUES (?, ?, ?, ?)
-			ON CONFLICT (guild_id, board) DO UPDATE SET fetched_at = excluded.fetched_at, rows = excluded.rows;`,
-			guild, board, at.Unix(), len(rows))
+		_, err := tx.Exec(`INSERT INTO fetches (guild_id, board, period, fetched_at, rows) VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT (guild_id, board, period) DO UPDATE SET fetched_at = excluded.fetched_at, rows = excluded.rows;`,
+			guild, board, period, at.Unix(), len(rows))
 		return err
 	})
 }
 
-// the last fetch of the guild's board; ok=false if it was never built
-func (db *BoardDB) LastFetch(guild, board string) (f Fetch, ok bool, err error) {
-	iter, err := db.file.Query(`SELECT fetched_at, rows FROM fetches WHERE guild_id = ? AND board = ?;`, guild, board)
+// the last fetch of the guild's board for a period; ok=false if it was never built
+func (db *BoardDB) LastFetch(guild, board, period string) (f Fetch, ok bool, err error) {
+	iter, err := db.file.Query(`SELECT fetched_at, rows FROM fetches WHERE guild_id = ? AND board = ? AND period = ?;`, guild, board, period)
 	if err != nil {
 		return Fetch{}, false, err
 	}
@@ -127,7 +157,7 @@ func (db *BoardDB) LastFetch(guild, board string) (f Fetch, ok bool, err error) 
 	return f, ok, err
 }
 
-// marks every board of the guild stale, so the next read rebuilds it
+// marks every board of the guild (every period) stale, so the next read rebuilds it
 func (db *BoardDB) Invalidate(guild string) error {
 	_, err := db.file.Exec(`DELETE FROM fetches WHERE guild_id = ?;`, guild)
 	return err
@@ -177,13 +207,13 @@ func (db *BoardDB) SetBlacklisted(guild, user string, on bool) (changed bool, er
 	return changed, err
 }
 
-// ranks first..last (inclusive, from 1) of the guild's board
-func (db *BoardDB) Range(guild, board string, first, last int) ([]Row, error) {
+// ranks first..last (inclusive, from 1) of the guild's board for a period
+func (db *BoardDB) Range(guild, board, period string, first, last int) ([]Row, error) {
 	if err := checkBoard(board); err != nil {
 		return nil, err
 	}
 	iter, err := db.file.Query(`SELECT rank, user_id, value, day, emojis FROM `+board+`
-		WHERE guild_id = ? AND rank BETWEEN ? AND ? ORDER BY rank;`, guild, first, last)
+		WHERE guild_id = ? AND period = ? AND rank BETWEEN ? AND ? ORDER BY rank;`, guild, period, first, last)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +235,7 @@ func (db *BoardDB) Range(guild, board string, first, last int) ([]Row, error) {
 	}
 }
 
-// the guild's whole board
-func (db *BoardDB) All(guild, board string) ([]Row, error) {
-	return db.Range(guild, board, 1, int(^uint32(0)>>1))
+// the guild's whole board for a period
+func (db *BoardDB) All(guild, board, period string) ([]Row, error) {
+	return db.Range(guild, board, period, 1, int(^uint32(0)>>1))
 }

@@ -82,3 +82,12 @@ func TestBlacklistEmbed(t *testing.T) {
 		t.Errorf("list = %+v", e)
 	}
 }
+
+func TestBoardTitle(t *testing.T) {
+	if got := boardTitle("Best Scores", leaderboard.WEEK, "Krill Club"); got != "🏆 Best Scores (1 Week) in Krill Club" {
+		t.Errorf("boardTitle() = %q", got)
+	}
+	if got := boardTitle("Your Ranks", leaderboard.ALLTIME, "Krill Club"); got != "🏆 Your Ranks (All-time) in Krill Club" {
+		t.Errorf("boardTitle() = %q", got)
+	}
+}
