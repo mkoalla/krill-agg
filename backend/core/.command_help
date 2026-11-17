@@ -25,37 +25,40 @@ Pages through this server's leaderboards (best, worst, average, games played).
 /topu || [user] [since]
 Shows someone's rank on every leaderboard, with a card charting their scores over that period.
 
-/refetchtop
+/mg-refetchtop
 Rebuilds this server's leaderboards now, then shows them.
 
-/blacklist show
+/mg-drop [user] [day]
+Deletes someone's score for a day (or every day, with -1) after confirming twice.
+
+/mg-blacklist show
 Lists who's left off the leaderboards.
 
-/blacklist add [user]
+/mg-blacklist add [user]
 Leaves someone off the leaderboards.
 
-/blacklist remove [user]
+/mg-blacklist remove [user]
 Puts someone back on the leaderboards.
 
 /show || [all]
 Lists the channels where results are read.
 
-/track || [all]
+/mg-track || [all]
 Starts reading results in this channel.
 
-/untrack || [all]
+/mg-untrack || [all]
 Stops reading results in this channel.
 
-/mainchan
+/mg-mainchan
 Makes this channel the one daily reports are posted in.
 
-/backfill
+/mg-backfill
 Reads old results in this channel back to a date you pick.
 
 /rank || [user]
 Shows someone's bot rank.
 
-/modrank [user] [rank]
+/mg-modrank [user] [rank]
 Sets someone's bot rank (below your own).
 
 /ping

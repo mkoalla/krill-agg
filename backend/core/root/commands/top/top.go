@@ -255,7 +255,7 @@ func open(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordgo.Inter
 	if err != nil {
 		return err
 	}
-	// /refetchtop's book flips like /top's: whoever can run /top
+	// /mg-refetchtop's book flips like /top's: whoever can run /top
 	return bcp.Pages.Open(s, i, "top", b)
 }
 
@@ -328,9 +328,9 @@ func Register(bcp *types.BotCommandPackage) {
 			return attachTrend(s, bcp, i, ranks, name, user, period)
 		},
 	}
-	(*bcp.Handles)["refetchtop"] = CommandInfo{
+	(*bcp.Handles)["mg-refetchtop"] = CommandInfo{
 		DGInfo: &discordgo.ApplicationCommand{
-			Name:        "refetchtop",
+			Name:        "mg-refetchtop",
 			Description: "rebuild this server's leaderboards now, then show them",
 		},
 		Metadata: types.CommandMetadata{MinTrustLevel: authorize.MANAGE},

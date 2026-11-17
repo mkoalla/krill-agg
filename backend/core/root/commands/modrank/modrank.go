@@ -30,9 +30,9 @@ func init() {
 // map is already reference-like but just for continuity
 func Register(bcp *types.BotCommandPackage) {
 	table := bcp.Auth
-	(*bcp.Handles)["modrank"] = CommandInfo{
+	(*bcp.Handles)["mg-modrank"] = CommandInfo{
 		DGInfo: &discordgo.ApplicationCommand{
-			Name:        "modrank",
+			Name:        "mg-modrank",
 			Description: "modify user rank",
 			Options: []*discordgo.ApplicationCommandOption{
 				{

@@ -1,11 +1,13 @@
-// Package drop is /drop: deleting your own results, one day or all of them,
-// behind Confirm clicks that each have to land in time (see DROP).
+// Package drop is /drop and /mg-drop: deleting your own results, or (for
+// managers) someone else's, one day or all of them, behind Confirm clicks
+// that each have to land in time (see DROP).
 package drop
 
 import (
 	"errors"
 	"fmt"
 	"krill-agg/root/info/run"
+	"krill-agg/root/info/theme"
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/types"
 	"strconv"
@@ -49,21 +51,45 @@ const (
 
 var noPings = &discordgo.MessageAllowedMentions{}
 
-// one /drop waiting on its owner. whoever takes it done first (a click or
-// the timer) is the only one that answers
+// whose scores a drop is about, worded for the reply: "you" for your own,
+// a mention otherwise. replies are embeds, so mentions never ping
+type whose struct {
+	user string
+	self bool
+}
+
+// "your" / "<@id>'s"
+func (w whose) their() string {
+	if w.self {
+		return "your"
+	}
+	return fmt.Sprintf("<@%s>'s", w.user)
+}
+
+// "You don't" / "<@id> doesn't"
+func (w whose) doesnt() string {
+	if w.self {
+		return "You don't"
+	}
+	return fmt.Sprintf("<@%s> doesn't", w.user)
+}
+
+// one drop waiting on its owner (who ran it). whoever takes it done first (a
+// click or the timer) is the only one that answers
 type prompt struct {
-	mu    sync.Mutex
-	flow  Flow
-	id    uint64
-	owner string
-	guild string
-	what  string    // "ALL your scores", "your score for day 124"
-	shown string    // the score being dropped, for a single day
-	day   int       // 0: every day
-	step  int       // 1-based
-	until time.Time // when this step runs out
-	timer *time.Timer
-	done  bool
+	mu     sync.Mutex
+	flow   Flow
+	id     uint64
+	owner  string // who ran it, and the only one whose clicks count
+	target whose  // whose scores go
+	guild  string
+	what   string    // "ALL your scores", "<@id>'s score for day 124"
+	shown  string    // the score being dropped, or how many
+	day    int       // 0: every day
+	step   int       // 1-based
+	until  time.Time // when this step runs out
+	timer  *time.Timer
+	done   bool
 }
 
 // starts the step's clock over; caller holds p.mu
@@ -97,6 +123,10 @@ func noButtons() *[]discordgo.MessageComponent {
 	return &[]discordgo.MessageComponent{}
 }
 
+func embeds(text string) *[]*discordgo.MessageEmbed {
+	return &[]*discordgo.MessageEmbed{{Description: text, Color: theme.ACCENT}}
+}
+
 // the question for the step p is on, with when it runs out
 func question(p *prompt, expiry time.Time) string {
 	sure := "sure"
@@ -110,30 +140,31 @@ func question(p *prompt, expiry time.Time) string {
 	return q + fmt.Sprintf("\n-# expires <t:%d:R>", expiry.Unix())
 }
 
-// the first answer to /drop: buttons for a drop that has something to drop,
-// or just why not
-func start(bcp *types.BotCommandPackage, s *discordgo.Session, i *discordgo.InteractionCreate, day int) error {
+// the first answer to a drop: buttons when there's something to drop, or
+// just why not. day 0 is every day
+func start(bcp *types.BotCommandPackage, s *discordgo.Session, i *discordgo.InteractionCreate, target string, day int) error {
 	owner, guild := i.Member.User.ID, i.GuildID
-	p := &prompt{flow: DROP, id: nextID.Add(1), owner: owner, guild: guild, day: day, step: 1}
+	w := whose{user: target, self: target == owner}
+	p := &prompt{flow: DROP, id: nextID.Add(1), owner: owner, target: w, guild: guild, day: day, step: 1}
 	if day == 0 {
-		n, err := bcp.Scores.Count(guild, owner)
+		n, err := bcp.Scores.Count(guild, target)
 		if err != nil {
 			return err
 		}
 		if n == 0 {
-			return respond(s, i, "You don't have any scores to drop.", nil)
+			return respond(s, i, w.doesnt()+" have any scores to drop.", nil)
 		}
-		p.what = "ALL your scores"
+		p.what = "ALL " + w.their() + " scores"
 		p.shown = fmt.Sprintf("%d score%s", n, plural(n))
 	} else {
-		score, ok, err := bcp.Scores.Get(guild, day, owner)
+		score, ok, err := bcp.Scores.Get(guild, day, target)
 		if err != nil {
 			return err
 		}
 		if !ok {
-			return respond(s, i, "You don't have a score for this day.", nil)
+			return respond(s, i, w.doesnt()+" have a score for this day.", nil)
 		}
-		p.what = fmt.Sprintf("your score for day %d", day)
+		p.what = fmt.Sprintf("%s score for day %d", w.their(), day)
 		p.shown = score.Format()
 	}
 
@@ -156,8 +187,7 @@ func start(bcp *types.BotCommandPackage, s *discordgo.Session, i *discordgo.Inte
 			return
 		}
 		p.finish()
-		content := "Time's up, nothing was dropped."
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content, Components: noButtons(), AllowedMentions: noPings}) //nolint // nobody left to tell
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: embeds("Time's up, nothing was dropped."), Components: noButtons(), AllowedMentions: noPings}) //nolint // nobody left to tell
 	})
 	return nil
 }
@@ -169,8 +199,8 @@ func plural(n int) string {
 	return "s"
 }
 
-func respond(s *discordgo.Session, i *discordgo.InteractionCreate, content string, components *[]discordgo.MessageComponent) error {
-	data := &discordgo.InteractionResponseData{Content: content, AllowedMentions: noPings}
+func respond(s *discordgo.Session, i *discordgo.InteractionCreate, text string, components *[]discordgo.MessageComponent) error {
+	data := &discordgo.InteractionResponseData{Embeds: *embeds(text), AllowedMentions: noPings}
 	if components != nil {
 		data.Components = *components
 	}
@@ -215,8 +245,8 @@ func click(bcp *types.BotCommandPackage) func(s *discordgo.Session, i *discordgo
 		if !ok || i.Member.User.ID != owner {
 			return true, nil
 		}
-		edit := func(content string, components *[]discordgo.MessageComponent) error {
-			_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content, Components: components, AllowedMentions: noPings})
+		edit := func(text string, components *[]discordgo.MessageComponent) error {
+			_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: embeds(text), Components: components, AllowedMentions: noPings})
 			return err
 		}
 		mu.Lock()
@@ -255,16 +285,20 @@ func click(bcp *types.BotCommandPackage) func(s *discordgo.Session, i *discordgo
 
 // does the drop; says what was dropped
 func (p *prompt) drop(bcp *types.BotCommandPackage) (string, error) {
+	w := p.target
 	if p.day == 0 {
-		n, err := bcp.Scores.DropAll(p.guild, p.owner)
-		return fmt.Sprintf("Dropped all %d of your score%s.", n, plural(n)), err
+		n, err := bcp.Scores.DropAll(p.guild, w.user)
+		return fmt.Sprintf("Dropped all %d of %s score%s.", n, w.their(), plural(n)), err
 	}
-	ok, err := bcp.Scores.Drop(p.guild, p.owner, p.day)
+	ok, err := bcp.Scores.Drop(p.guild, w.user, p.day)
 	if err == nil && !ok {
-		return "You don't have a score for this day anymore.", nil
+		return w.doesnt() + " have a score for this day anymore.", nil
 	}
-	return fmt.Sprintf("Dropped your score for day %d.\n- %s", p.day, p.shown), err
+	return fmt.Sprintf("Dropped %s score for day %d.\n- %s", w.their(), p.day, p.shown), err
 }
+
+// /mg-drop's day for every day
+const ALL_DAYS = -1
 
 func Register(bcp *types.BotCommandPackage) {
 	bcp.Components.AddPrefixHandler(PREFIX, click(bcp))
@@ -276,7 +310,7 @@ func Register(bcp *types.BotCommandPackage) {
 				Type:        discordgo.ApplicationCommandOptionInteger,
 				Name:        "day",
 				Description: "krillion # to drop (default: all of them)",
-				MinValue:    &minDay,
+				MinValue:    &firstDay,
 			}},
 		},
 		Metadata: types.CommandMetadata{MinTrustLevel: authorize.DEFAULT},
@@ -287,10 +321,51 @@ func Register(bcp *types.BotCommandPackage) {
 					day = int(opt.IntValue())
 				}
 			}
-			return start(bcp, s, i, day)
+			return start(bcp, s, i, i.Member.User.ID, day)
+		},
+	}
+	(*bcp.Handles)["mg-drop"] = CommandInfo{
+		DGInfo: &discordgo.ApplicationCommand{
+			Name:        "mg-drop",
+			Description: "delete someone's results in this server",
+			Options: []*discordgo.ApplicationCommandOption{{
+				Type:        discordgo.ApplicationCommandOptionUser,
+				Name:        "user",
+				Description: "whose results",
+				Required:    true,
+			}, {
+				Type:        discordgo.ApplicationCommandOptionInteger,
+				Name:        "day",
+				Description: "krillion # to drop, or -1 for all of them",
+				Required:    true,
+				MinValue:    &allDays,
+			}},
+		},
+		Metadata: types.CommandMetadata{MinTrustLevel: authorize.MANAGE},
+		Callback: func(s *discordgo.Session, i *discordgo.InteractionCreate) error {
+			var user string
+			day := 0
+			for _, opt := range i.ApplicationCommandData().Options {
+				switch opt.Name {
+				case "user":
+					user, _ = opt.Value.(string) // raw: UserValue needs a session lookup
+				case "day":
+					day = int(opt.IntValue())
+				}
+			}
+			switch day {
+			case 0:
+				return respond(s, i, "Day must be a krillion # (1 or more), or -1 for all of them.", nil)
+			case ALL_DAYS:
+				day = 0
+			}
+			return start(bcp, s, i, user, day)
 		},
 	}
 }
 
-// krillion #1 is the first puzzle
-var minDay = 1.0
+// krillion #1 is the first puzzle; /mg-drop also takes ALL_DAYS
+var (
+	firstDay = 1.0
+	allDays  = float64(ALL_DAYS)
+)

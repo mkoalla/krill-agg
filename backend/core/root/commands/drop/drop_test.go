@@ -60,3 +60,13 @@ func TestRestart(t *testing.T) {
 		t.Errorf("until after a click = %v", p.until)
 	}
 }
+
+func TestWhose(t *testing.T) {
+	me, them := whose{user: "1", self: true}, whose{user: "2"}
+	if me.their() != "your" || me.doesnt() != "You don't" {
+		t.Errorf("self = %q %q", me.their(), me.doesnt())
+	}
+	if them.their() != "<@2>'s" || them.doesnt() != "<@2> doesn't" {
+		t.Errorf("other = %q %q", them.their(), them.doesnt())
+	}
+}

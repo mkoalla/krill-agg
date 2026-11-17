@@ -28,7 +28,7 @@ logs:
 	$(MAKE) -C ./backend/ logs
 
 # posts today's report (always a fresh card) in every guild's main channel
-# (set with /mainchan) from the running bot. for cron
+# (set with /mg-mainchan) from the running bot. for cron
 live-daily:
 	@ docker compose exec -T main ./main ctl daily
 

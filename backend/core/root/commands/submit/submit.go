@@ -60,7 +60,7 @@ func Register(bcp *types.BotCommandPackage) {
 	startExpiryWorker()
 
 	*bcp.MessageHandlers = append(*bcp.MessageHandlers, func(s *discordgo.Session, m *discordgo.MessageCreate) (logMsg string, err error) {
-		// only read submissions in guild channels picked with /track
+		// only read submissions in guild channels picked with /mg-track
 		g := m.GuildID
 		if g == "" || !bcp.Tracking.IsTracked(g, m.ChannelID) {
 			return "", nil

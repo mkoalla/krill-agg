@@ -89,9 +89,9 @@ func blacklistEmbed(ids []string) *discordgo.MessageEmbed {
 }
 
 func registerBlacklist(bcp *types.BotCommandPackage) {
-	(*bcp.Handles)["blacklist"] = CommandInfo{
+	(*bcp.Handles)["mg-blacklist"] = CommandInfo{
 		DGInfo: &discordgo.ApplicationCommand{
-			Name:        "blacklist",
+			Name:        "mg-blacklist",
 			Description: "leave people off this server's leaderboards",
 			Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "show", Description: "list who's left off"},

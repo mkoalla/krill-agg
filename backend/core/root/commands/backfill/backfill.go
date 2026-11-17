@@ -114,7 +114,7 @@ func onSubmit(bcp bcpackage) func(s session, i intxn) (bool, error) {
 			return true, editDeferred(s, i, "Sorry, you can't use that command.")
 		}
 		if !bcp.Tracking.IsTracked(i.GuildID, i.ChannelID) {
-			return true, editDeferred(s, i, "This channel isn't tracked. Use /track first.")
+			return true, editDeferred(s, i, "This channel isn't tracked. Use /mg-track first.")
 		}
 		values := make(map[string]string, 3)
 		modalValues(i.ModalSubmitData().Components, values)
@@ -155,15 +155,15 @@ func Register(bcp *types.BotCommandPackage) {
 	bcp.Components.AddPrefixHandler(modalID, onSubmit(bcp))
 	bcp.Components.AddPrefixHandler(cancelPrefix, onCancel(bcp))
 
-	(*bcp.Handles)["backfill"] = CommandInfo{
+	(*bcp.Handles)["mg-backfill"] = CommandInfo{
 		DGInfo: &discordgo.ApplicationCommand{
-			Name:        "backfill",
+			Name:        "mg-backfill",
 			Description: "read old krillion results in this channel back to a date",
 		},
 		Metadata: metadata,
 		Callback: func(s session, i intxn) error {
 			if !bcp.Tracking.IsTracked(i.GuildID, i.ChannelID) {
-				return reply(s, i, "This channel isn't tracked. Use /track first.")
+				return reply(s, i, "This channel isn't tracked. Use /mg-track first.")
 			}
 			if _, busy := running(i.ChannelID); busy {
 				return reply(s, i, "A backfill is already running in this channel.")

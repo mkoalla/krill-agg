@@ -55,7 +55,7 @@ func textChannels(s session, guild string) ([]*discordgo.Channel, error) {
 
 const MAIN_MARK = "⭐"
 
-const MAIN_HINT = "Change it with `/mainchan`."
+const MAIN_HINT = "Change it with `/mg-mainchan`."
 
 // tracked channels (main one starred), or every text channel with the tracked ones marked
 func listing(s session, i intxn, bcp bcpackage, showAll bool) (string, error) {
@@ -150,7 +150,7 @@ func untrack(s session, i intxn, bcp bcpackage, all bool) (string, bool, error) 
 	}
 	summary := fmt.Sprintf("Stopped tracking <#%s>.", i.ChannelID)
 	if lostMain {
-		summary += "\nIt was the main channel, so there's none now and daily results won't be posted. Set one with `/mainchan`."
+		summary += "\nIt was the main channel, so there's none now and daily results won't be posted. Set one with `/mg-mainchan`."
 	}
 	return summary, false, nil
 }
@@ -212,26 +212,26 @@ func Register(bcp *types.BotCommandPackage) {
 		Metadata: types.CommandMetadata{MinTrustLevel: authorize.DEFAULT},
 		Callback: respond(show, bcp),
 	}
-	(*bcp.Handles)["track"] = CommandInfo{
+	(*bcp.Handles)["mg-track"] = CommandInfo{
 		DGInfo: &discordgo.ApplicationCommand{
-			Name:        "track",
+			Name:        "mg-track",
 			Description: "read krillion results in this channel",
 			Options:     allOption("track every text channel in this server"),
 		},
 		Metadata: types.CommandMetadata{MinTrustLevel: authorize.MANAGE},
 		Callback: respond(track, bcp),
 	}
-	(*bcp.Handles)["mainchan"] = CommandInfo{
+	(*bcp.Handles)["mg-mainchan"] = CommandInfo{
 		DGInfo: &discordgo.ApplicationCommand{
-			Name:        "mainchan",
+			Name:        "mg-mainchan",
 			Description: "post daily results in this channel (tracks it too)",
 		},
 		Metadata: types.CommandMetadata{MinTrustLevel: authorize.MANAGE},
 		Callback: respond(mainchan, bcp),
 	}
-	(*bcp.Handles)["untrack"] = CommandInfo{
+	(*bcp.Handles)["mg-untrack"] = CommandInfo{
 		DGInfo: &discordgo.ApplicationCommand{
-			Name:        "untrack",
+			Name:        "mg-untrack",
 			Description: "stop reading krillion results in this channel",
 			Options:     allOption("untrack every channel in this server"),
 		},

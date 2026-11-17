@@ -44,7 +44,7 @@ func postAll(channels []string, workers int, post func(channel string) (string, 
 }
 
 // `main ctl daily`: posts today's report in every guild's main channel (see
-// /mainchan), CTL_WORKERS at a time. every guild is tried. the first line of
+// /mg-mainchan), CTL_WORKERS at a time. every guild is tried. the first line of
 // the output (or error) is a summary; links or failures follow it, one per line.
 // logf announces the run before it starts
 func CtlDaily(s *discordgo.Session, bcp *types.BotCommandPackage, logf func(msg string)) ctl.Handler {
