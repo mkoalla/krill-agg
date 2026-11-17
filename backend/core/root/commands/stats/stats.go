@@ -66,7 +66,8 @@ func Board(day int, entries []scores.Entry) *discordgo.MessageEmbed {
 	return &discordgo.MessageEmbed{Title: krillion.Header(day), Description: desc, Color: theme.ACCENT}
 }
 
-const QUESTIONS_TITLE = "Today's Questions"
+// a heading rather than the embed's title, to match the report's sections
+const QUESTIONS_HEADING = "### Today's Questions"
 
 // "1. ||question||" for each, spoilered so nobody sees them by accident
 func QuestionsEmbed(qs []string) *discordgo.MessageEmbed {
@@ -74,7 +75,7 @@ func QuestionsEmbed(qs []string) *discordgo.MessageEmbed {
 	for j, q := range qs {
 		lines[j] = fmt.Sprintf("%d. ||%s||", j+1, q)
 	}
-	return &discordgo.MessageEmbed{Title: QUESTIONS_TITLE, Description: strings.Join(lines, "\n"), Color: theme.ACCENT}
+	return &discordgo.MessageEmbed{Description: QUESTIONS_HEADING + "\n" + strings.Join(lines, "\n"), Color: theme.ACCENT}
 }
 
 // the day's saved questions as an embed, or nil if they were never fetched

@@ -110,8 +110,10 @@ func Content(snap *Snapshot, winners bool) string {
 // day is in the message heading, so the embed is just "Scores"
 func Combined(day int, entries []scores.Entry, dist krillionapi.Stats) *discordgo.MessageEmbed {
 	embed := stats.Board(day, entries)
-	embed.Title = "Scores"
-	embed.Description += "\n### Percentiles\n" + Percentiles(day, dist, entries)
+	// an embed has one title, so both sections are headings instead; that
+	// way they look alike (the day is in the message heading anyway)
+	embed.Title = ""
+	embed.Description = "### Scores\n" + embed.Description + "\n### Percentiles\n" + Percentiles(day, dist, entries)
 	return embed
 }
 

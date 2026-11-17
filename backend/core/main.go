@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -28,6 +29,12 @@ import (
 	"strings"
 	"syscall"
 )
+
+// /help's entries (see the help command), built into the binary so the
+// release image needs no file beside it
+//
+//go:embed .command_help
+var commandHelp string
 
 // some globals
 var (
@@ -283,6 +290,7 @@ func main() {
 		Scores:        scoreMan,
 		Tracking:      getManTracking(),
 		DataDir:       DATA_PATH,
+		HelpText:      commandHelp,
 	})
 
 	session, err := bot.Start(bot.StartInstructions{

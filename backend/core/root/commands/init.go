@@ -5,6 +5,7 @@ import (
 	"krill-agg/root/commands/channels"
 	"krill-agg/root/commands/daily"
 	"krill-agg/root/commands/day"
+	"krill-agg/root/commands/help"
 	"krill-agg/root/commands/modrank"
 	"krill-agg/root/commands/ping"
 	"krill-agg/root/commands/rank"
@@ -37,6 +38,7 @@ type RegisterReqs struct {
 	Scores        *scores.ScoreManager
 	Tracking      *tracking.TrackingManager
 	DataDir       string
+	HelpText      string
 }
 
 var registers = []func(*types.BotCommandPackage){
@@ -44,6 +46,7 @@ var registers = []func(*types.BotCommandPackage){
 	channels.Register,
 	daily.Register,
 	day.Register,
+	help.Register,
 	modrank.Register,
 	ping.Register,
 	rank.Register,
@@ -69,6 +72,7 @@ func Register(reqs RegisterReqs) *types.BotCommandPackage {
 		Scores:          reqs.Scores,
 		Tracking:        reqs.Tracking,
 		DataDir:         reqs.DataDir,
+		HelpText:        reqs.HelpText,
 	}
 
 	// flips reach the pages manager through the components' prefix routing

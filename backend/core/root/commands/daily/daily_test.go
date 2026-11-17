@@ -63,22 +63,22 @@ func TestCombined(t *testing.T) {
 	today := krillion.Today()
 	dist := krillionapi.Stats{Sample: 3245071, Dist: []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3245071, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 	entries := []scores.Entry{{UserID: "1", Score: krillion.PlayerScore{Day: today, Score: 415, Choices: []string{"🦑", "🦑", "🦑", "🐟", "🦑", "🦑", "🏮"}}}}
-	want := "`🦑🦑🦑🐟🦑🦑🏮` - `415` - <@1>\n### Percentiles\nPlayers today: `3,245,071`\n\n`~100%` - <@1>"
+	want := "### Scores\n`🦑🦑🦑🐟🦑🦑🏮` - `415` - <@1>\n### Percentiles\nPlayers today: `3,245,071`\n\n`~100%` - <@1>"
 	got := Combined(today, entries, dist)
-	if got.Title != "Scores" || got.Description != want {
+	if got.Title != "" || got.Description != want {
 		t.Errorf("Combined() = %q / %q\nwant %q", got.Title, got.Description, want)
 	}
 
 	empty := Combined(today, nil, dist)
-	if empty.Description != "No players yet!\n### Percentiles\nPlayers today: `3,245,071`" {
+	if empty.Description != "### Scores\nNo players yet!\n### Percentiles\nPlayers today: `3,245,071`" {
 		t.Errorf("empty Combined() = %q", empty.Description)
 	}
 
 	// a finished day counts "that day"; one krillion has no distribution for says so
-	if past := Combined(today-1, nil, dist); past.Description != "No players yet!\n### Percentiles\nPlayers that day: `3,245,071`" {
+	if past := Combined(today-1, nil, dist); past.Description != "### Scores\nNo players yet!\n### Percentiles\nPlayers that day: `3,245,071`" {
 		t.Errorf("past Combined() = %q", past.Description)
 	}
-	if none := Combined(5, nil, krillionapi.Stats{}); none.Description != "No players yet!\n### Percentiles\n"+NO_DIST {
+	if none := Combined(5, nil, krillionapi.Stats{}); none.Description != "### Scores\nNo players yet!\n### Percentiles\n"+NO_DIST {
 		t.Errorf("no-dist Combined() = %q", none.Description)
 	}
 }

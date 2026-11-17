@@ -41,6 +41,7 @@ type BotCommandPackage struct {
 	Scores          *scores.ScoreManager
 	Tracking        *tracking.TrackingManager
 	DataDir         string // the shared data mount (also seen by dailygen)
+	HelpText        string // .command_help, built into the binary by main
 }
 
 type SessionCommandRegisters struct {
