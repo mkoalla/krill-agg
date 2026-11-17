@@ -27,5 +27,5 @@ func Rebuild(day int, emojis string) (PlayerScore, error) {
 		p.Choices = append(p.Choices, cluster)
 		p.Score += value
 	}
-	return p, Validate(p)
+	return p, validateResult(p)
 }

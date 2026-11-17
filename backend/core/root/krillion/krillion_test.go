@@ -173,3 +173,24 @@ func TestNextCluster(t *testing.T) {
 		})
 	}
 }
+
+// a puzzle that isn't out yet fails; today's and earlier are fine, and a
+// stored row is never re-checked against the clock
+func TestFromMessage_FutureDay(t *testing.T) {
+	defer func(real func() int) { today = real }(today)
+	today = func() int { return 123 }
+	msg := "Krillion #124 🦐\n415\n\n🦑🦑🦑🐟🦑🦑🏮"
+	_, err := FromMessage(msg)
+	var v *ValidationError
+	if !errors.As(err, &v) || !strings.Contains(err.Error(), "krillion #124 hasn't happened yet (today is #123)") {
+		t.Fatalf("future day: %v", err)
+	}
+	today = func() int { return 124 }
+	if _, err := FromMessage(msg); err != nil {
+		t.Errorf("today's puzzle: %v", err)
+	}
+	today = func() int { return 1 }
+	if _, err := Rebuild(124, "🦑🦑🦑🐟🦑🦑🏮"); err != nil {
+		t.Errorf("stored row checked against the clock: %v", err)
+	}
+}

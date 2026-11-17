@@ -7,17 +7,30 @@ import (
 
 // stage 2: independent checks on an already-parsed result, combined with errors.Join
 func Validate(p PlayerScore) error {
+	return errors.Join(validateResult(p), validateDay(p))
+}
+
+// the checks on the result itself, which a stored row (see Rebuild) must
+// still pass. its day was checked when it came in
+func validateResult(p PlayerScore) error {
 	var errs []error
-	if err := validateCount(p); err != nil {
-		errs = append(errs, err)
-	}
-	if err := validateTypes(p); err != nil {
-		errs = append(errs, err)
-	}
-	if err := validateSum(p); err != nil {
-		errs = append(errs, err)
+	for _, check := range []func(PlayerScore) error{validateCount, validateTypes, validateSum} {
+		if err := check(p); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	return errors.Join(errs...)
+}
+
+// the puzzle that's live now; a var so tests can move the clock
+var today = Today
+
+// the puzzle must already be out: nobody has played tomorrow's
+func validateDay(p PlayerScore) error {
+	if now := today(); p.Day > now {
+		return &ValidationError{fmt.Sprintf("krillion #%d hasn't happened yet (today is #%d)", p.Day, now)}
+	}
+	return nil
 }
 
 // the chain must be exactly NumChoices long
