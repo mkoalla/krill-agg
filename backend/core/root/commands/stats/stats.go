@@ -66,8 +66,8 @@ func Board(day int, entries []scores.Entry) *discordgo.MessageEmbed {
 	return &discordgo.MessageEmbed{Title: krillion.Header(day), Description: desc, Color: theme.ACCENT}
 }
 
-// a heading rather than the embed's title, to match the report's sections
-const QUESTIONS_HEADING = "### Today's Questions"
+// a bold label rather than the embed's title, to match the report's sections
+const QUESTIONS_HEADING = "**Today's Questions**"
 
 // "1. ||question||" for each, spoilered so nobody sees them by accident
 func QuestionsEmbed(qs []string) *discordgo.MessageEmbed {
