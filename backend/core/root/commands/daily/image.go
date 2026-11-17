@@ -80,7 +80,7 @@ func remember(guild string, c cachedImage) {
 //   - lead: this call renders, and must call done when finished
 //
 // or, from claimPast, a past day's card: cached (its link still works), or
-// past (upload the card in dir, drawing it first if png is empty, and note
+// past (upload the card in dir, drawing it first if card is empty, and note
 // the new link)
 type ticket struct {
 	cached *cachedImage
@@ -89,7 +89,7 @@ type ticket struct {
 	guild  string
 	past   bool
 	dir    string // past: data/dailygen/<guild>/<day>
-	png    string // past: the card already on disk, if any
+	card   string // past: the card already on disk, if any
 }
 
 // next to a past day's card: the discord link it was last posted at
@@ -120,9 +120,9 @@ func claimPast(dir string, day int) *ticket {
 		}
 	}
 	t := &ticket{past: true, dir: dir}
-	png := filepath.Join(dir, fmt.Sprintf("daily_%d.png", day))
-	if _, err := os.Stat(png); err == nil {
-		t.png = png
+	card := filepath.Join(dir, fmt.Sprintf("daily_%d.webp", day))
+	if _, err := os.Stat(card); err == nil {
+		t.card = card
 	}
 	return t
 }
@@ -217,7 +217,7 @@ func getGuild(s *discordgo.Session, guild string) *discordgo.Guild {
 // "better than x% of …" for a day that's over
 const PAST_POPULATION = "that day's players"
 
-// fetches avatars and has dailygen render the card; returns the png's path on
+// fetches avatars and has dailygen render the card; returns the card's path on
 // disk. a day nobody played still gets a card (no average), as does one
 // krillion has no distribution for (a flat line, no percentile)
 func GenerateImage(s *discordgo.Session, bcp *types.BotCommandPackage, snap *Snapshot) (string, error) {
@@ -352,7 +352,7 @@ func channelSender(s *discordgo.Session, channel string) sender {
 
 // posts the report with the card as a second embed in the same message: a
 // cached card straight away, or a placeholder (so the board never waits) and
-// then an edit that attaches the png. t comes from claimFor or claimWait
+// then an edit that attaches the card. t comes from claimFor or claimWait
 // (today's card), or claimPast (a past day's, from /stats)
 func withImage(s *discordgo.Session, post sender, bcp *types.BotCommandPackage, snap *Snapshot, report []*discordgo.MessageEmbed, t *ticket, opts ImageOptions) (*discordgo.Message, error) {
 	send := func(image *discordgo.MessageEmbed, files []*discordgo.File) (*discordgo.Message, error) {
@@ -375,7 +375,7 @@ func withImage(s *discordgo.Session, post sender, bcp *types.BotCommandPackage, 
 		return msg, errors.Join(fmt.Errorf("daily image: %v", reason), errEdit)
 	}
 
-	path := t.png // a past day's card already drawn: just upload it again
+	path := t.card // a past day's card already drawn: just upload it again
 	if path == "" {
 		if path, err = GenerateImage(s, bcp, snap); err != nil {
 			return fail(err)
@@ -388,7 +388,7 @@ func withImage(s *discordgo.Session, post sender, bcp *types.BotCommandPackage, 
 	defer f.Close() //nolint
 
 	name := filepath.Base(path)
-	final, err := send(imageEmbed("", "attachment://"+name), []*discordgo.File{{Name: name, ContentType: "image/png", Reader: f}})
+	final, err := send(imageEmbed("", "attachment://"+name), []*discordgo.File{{Name: name, ContentType: "image/webp", Reader: f}})
 	if err != nil {
 		return fail(err)
 	}

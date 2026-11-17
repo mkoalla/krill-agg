@@ -14,7 +14,7 @@ import json
 import sys
 
 from . import api
-from .card import CardData, render_png
+from .card import CardData, render_png, render_webp
 from .players import Player, parse_user
 
 
@@ -66,7 +66,9 @@ def main() -> int:
         data.icon = args.icon
 
     with open(args.out, "wb") as f:
-        f.write(render_png(data, args.scale))
+        # lossless webp when --out ends in .webp, png otherwise
+        render = render_webp if args.out.lower().endswith(".webp") else render_png
+        f.write(render(data, args.scale))
     print(f"wrote {args.out}: #{data.day}, mean {data.mean}, better than {data.better_than():.2f}%", file=sys.stderr)
     return 0
 

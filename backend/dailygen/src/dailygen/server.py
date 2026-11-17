@@ -4,7 +4,7 @@ the png landed under the shared data dir.
 POST /render {"guild", "title", "day", "images", "mean"?, "dist"?, "percentile"?,
               "users"?: [{"score"}], "user_size"?, "max_push"?, "icon"?, "sample"?,
               "population"?}
-  -> 200 {"path": "<guild>/<day>/daily_<day>.png"}   (relative to the data dir)
+  -> 200 {"path": "<guild>/<day>/daily_<day>.webp"}   (relative to the data dir)
   -> 400/500 {"error": "..."}
 Avatars are implicit: users[i] uses <guild>/<day>/<images>/<i>.png when it
 exists. "icon" names the guild's icon in that same folder (e.g. "guild.png").
@@ -27,7 +27,7 @@ import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .card import CardData, render_png
+from .card import CardData, render_webp
 from .players import Player
 
 DEFAULT_PORT = 40404
@@ -91,13 +91,13 @@ def build(body: dict, data_dir: Path) -> tuple[CardData, Path]:
         sample=sample,
         population=population,
     )
-    return data, card_dir / f"daily_{day}.png"
+    return data, card_dir / f"daily_{day}.webp"
 
 
 def write_atomic(path: Path, content: bytes) -> None:
-    """readers never see a half-written png"""
+    """readers never see a half-written card"""
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".daily_", suffix=".png")
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".daily_", suffix=path.suffix)
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(content)
@@ -140,7 +140,7 @@ def make_handler(data_dir: Path):
                 self._reply(400, {"error": str(err)})
                 return
             try:
-                write_atomic(out, render_png(data))
+                write_atomic(out, render_webp(data))
             except Exception as err:  # the bot shows this, so keep it short
                 self._reply(500, {"error": f"render failed: {err}"})
                 return

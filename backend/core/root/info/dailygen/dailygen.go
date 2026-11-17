@@ -12,7 +12,7 @@ import (
 
 // where the renderer reads avatars and writes cards, under the shared data
 // mount. one card's files sit in DIR/<guild>/<day>/: its images folder (made
-// fresh per render, removed after) and daily_<day>.png
+// fresh per render, removed after) and daily_<day>.webp (lossless)
 const DIR = "dailygen"
 
 var client = &http.Client{Timeout: 60 * time.Second}

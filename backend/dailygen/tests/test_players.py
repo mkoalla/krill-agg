@@ -82,3 +82,18 @@ def test_top_score_card():
     svg = top_svg(data, 58)
     assert "TOP SCORE" in svg and ">415</text>" in svg
     assert svg.count('stroke="#a7b1c2"') == 2  # one ring per tied winner
+
+
+def test_webp_is_lossless():
+    import io
+
+    from PIL import Image
+
+    from dailygen.card import render_webp
+
+    data = CardData(title="t", day=1, mean=350, dist=SNAPSHOT, players=[Player(400), Player(2)])
+    png, webp = render_png(data), render_webp(data)
+    assert webp[:4] == b"RIFF" and webp[8:12] == b"WEBP"
+    assert len(webp) < len(png)
+    with Image.open(io.BytesIO(png)) as a, Image.open(io.BytesIO(webp)) as b:
+        assert a.convert("RGBA").tobytes() == b.convert("RGBA").tobytes()

@@ -4,11 +4,13 @@ The chart is krillion.io's own SVG (see curve.py) dropped into a card with the
 score row and percentile line around it.
 """
 
+import io
 from dataclasses import dataclass, field
 from html import escape
 from importlib.resources import files
 
 import resvg_py
+from PIL import Image
 
 from . import curve
 from .players import Player, avatar_uri, stack
@@ -411,3 +413,12 @@ def render_png(data: CardData, scale: float = 2) -> bytes:
         zoom=scale,
     )
     return bytes(png)
+
+
+def render_webp(data: CardData, scale: float = 2) -> bytes:
+    """The same pixels as render_png, as lossless webp (about 40% smaller).
+    resvg only writes png, so this re-encodes it."""
+    out = io.BytesIO()
+    with Image.open(io.BytesIO(render_png(data, scale))) as im:
+        im.save(out, format="WEBP", lossless=True, method=6)
+    return out.getvalue()

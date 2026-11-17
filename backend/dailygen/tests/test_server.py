@@ -49,10 +49,10 @@ def test_render_writes_png_and_returns_path(server):
     (images / "0.png").write_bytes(a_red_square())
     # user 1 has no image: grey disc, still a success
     status, resp = post(url, body())
-    assert status == 200 and resp == {"path": "123/124/daily_124.png"}
-    out = data / "123" / "124" / "daily_124.png"
+    assert status == 200 and resp == {"path": "123/124/daily_124.webp"}
+    out = data / "123" / "124" / "daily_124.webp"
     first = out.read_bytes()
-    assert first[:4] == b"\x89PNG"
+    assert first[:4] == b"RIFF" and first[8:12] == b"WEBP"  # lossless webp
     # same day again overwrites
     status, _ = post(url, body(mean=200))
     assert status == 200 and out.read_bytes() != first
@@ -68,22 +68,22 @@ def test_bad_requests(server, bad):
     url, data = server
     status, resp = post(url, body(**bad))
     assert status == 400 and resp["error"]
-    assert not any(data.rglob("*.png"))
+    assert not any(data.rglob("daily_*"))
 
 
 @pytest.mark.parametrize("dist", [None, [], [0] * 20])
 def test_missing_or_all_zero_dist_is_accepted(server, dist):
     url, data = server
     status, resp = post(url, body(dist=dist))
-    assert status == 200 and resp["path"] == "123/124/daily_124.png"
-    assert (data / "123" / "124" / "daily_124.png").exists()
+    assert status == 200 and resp["path"] == "123/124/daily_124.webp"
+    assert (data / "123" / "124" / "daily_124.webp").exists()
 
 
 def test_null_mean_is_accepted(server):
     url, data = server
     status, resp = post(url, body(mean=None, users=[]))
     assert status == 200
-    assert (data / "123" / "124" / "daily_124.png").exists()
+    assert (data / "123" / "124" / "daily_124.webp").exists()
 
 
 def test_health(server):
@@ -110,7 +110,7 @@ def test_avatar_path_is_under_images_day_folder(tmp_path):
 
     data, out = build(body(), tmp_path)
     assert data.players[0].avatar == str(tmp_path / "123" / "124" / "scratch" / "0.png")
-    assert out == tmp_path / "123" / "124" / "daily_124.png"
+    assert out == tmp_path / "123" / "124" / "daily_124.webp"
 
 
 def test_sample_is_drawn_with_commas(tmp_path):

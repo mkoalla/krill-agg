@@ -137,19 +137,19 @@ func TestClaimPast(t *testing.T) {
 	dir := t.TempDir()
 
 	// nothing on disk yet: draw it
-	if tk := claimPast(dir, 100); tk.cached != nil || !tk.past || tk.png != "" {
+	if tk := claimPast(dir, 100); tk.cached != nil || !tk.past || tk.card != "" {
 		t.Fatalf("empty dir: %+v", tk)
 	}
-	// drawn before, link expired: upload the png again
-	png := filepath.Join(dir, "daily_100.png")
-	if err := os.WriteFile(png, []byte("png"), 0o644); err != nil {
+	// drawn before, link expired: upload the card again
+	card := filepath.Join(dir, "daily_100.webp")
+	if err := os.WriteFile(card, []byte("webp"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeLink(dir, live.URL+"/gone.png"); err != nil {
 		t.Fatal(err)
 	}
-	if tk := claimPast(dir, 100); tk.cached != nil || tk.png != png {
-		t.Fatalf("dead link: %+v, want a re-upload of %s", tk, png)
+	if tk := claimPast(dir, 100); tk.cached != nil || tk.card != card {
+		t.Fatalf("dead link: %+v, want a re-upload of %s", tk, card)
 	}
 	// a working link is reused as-is
 	if err := writeLink(dir, live.URL+"/ok.png"); err != nil {

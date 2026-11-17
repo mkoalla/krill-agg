@@ -1,7 +1,9 @@
 # dailygen
 
 Renders the krillion results card (guild name, guild mean score, depth, dive number, the
-score distribution curve filled up to the mean, and the percentile) as a PNG.
+score distribution curve filled up to the mean, and the percentile) as a
+lossless WebP (the same pixels as resvg's PNG, about 40% smaller; Discord shows
+it inline). `--out` writes WebP for a `.webp` name and PNG otherwise.
 
 The chart is a port of krillion.io's own SVG: the 20 histogram buckets are
 smoothed with a 5-tap kernel `[.06 .24 .4 .24 .06]`, drawn as a Catmull-Rom
@@ -57,9 +59,9 @@ uv run python -m dailygen.server --data-dir ../../data/dailygen
 
 `POST /render` with `{"guild", "title", "day", "images", "mean"?, "dist"?,
 "percentile"?, "users"?: [{"score"}], "user_size"?, "max_push"?, "icon"?,
-"sample"?, "population"?}` writes `<data-dir>/<guild>/<day>/daily_<day>.png`
+"sample"?, "population"?}` writes `<data-dir>/<guild>/<day>/daily_<day>.webp`
 (overwriting; `data/dailygen/` on the shared mount) and answers
-`200 {"path": "<guild>/<day>/daily_<day>.png"}`, or `400`/`500` with `{"error"}`.
+`200 {"path": "<guild>/<day>/daily_<day>.webp"}`, or `400`/`500` with `{"error"}`.
 
 `images` is required: a bare folder name. The bot creates it as a unique
 scratch dir at `<guild>/<day>/<images>/`, downloads `users[i]`'s avatar there
