@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Krillion Day</title>
+<style>
+  @font-face { font-family: "VT323"; src: url(vt323.woff2) format("woff2"); font-display: swap; }
+  :root {
+    /* krillion's palette */
+    --abyss: #050a14; --shallow: #101d33; --line: #1b2c47; --hairline: #7d93b838;
+    --foam: #e8f1ff; --drift: #7d93b8; --cyan: #4de3ff; --pink: #ff5d8f;
+    --display: "VT323", ui-monospace, monospace;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    --row: 34px; /* the shortest a row gets; longer text wraps and makes it taller */
+  }
+  /* tier colors (krillion's own), and a very dark tint of each for the row
+     behind it: all tints at about the same lightness so none shouts */
+  .krillion  { --ink: #ffd166; --tint: hsl(42 55% 9%); }
+  .deepcut   { --ink: #bfa7ff; --tint: hsl(256 35% 11%); }
+  .rare      { --ink: #ff7bac; --tint: hsl(338 40% 10%); }
+  .schooler  { --ink: #7deaff; --tint: hsl(190 50% 8%); }
+  .tooclever { --ink: #ff9f43; --tint: hsl(28 55% 9%); }
+  .plankton  { --ink: #8fa3c4; --tint: transparent; } /* bubbles: the plain navy */
+
+  * { box-sizing: border-box; }
+  html { background: var(--abyss); }
+  body {
+    margin: 0; min-height: 100vh; color: var(--drift);
+    background: radial-gradient(120% 70% at 50% 0%, #16283c 0%, var(--shallow) 35%, var(--abyss) 80%) fixed;
+    font: 14px/1.45 var(--mono);
+  }
+  main { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 28px 16px 64px; }
+
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+  h1 {
+    margin: 0; flex: 1; font: 46px/1 var(--display); letter-spacing: .02em; color: var(--foam);
+    text-shadow: 0 0 18px #4de3ff59;
+  }
+  header button.day {
+    width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--shallow); color: var(--cyan); font: 22px/1 var(--display); cursor: pointer;
+  }
+  header button.day:hover { border-color: var(--cyan); box-shadow: 0 0 12px #4de3ff40; }
+  #status { margin: 0 0 18px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+
+  /* the download bar: the krill swims along the end of the fill */
+  #load { position: relative; height: 6px; margin: 22px 18px 26px 0; border-radius: 3px; background: var(--line); }
+  #load[hidden] { display: none; }
+  #load .fill {
+    height: 100%; width: 0; border-radius: 3px; transition: width .15s linear;
+    background: linear-gradient(90deg, #4de3ff66, var(--cyan)); box-shadow: 0 0 10px #4de3ff66;
+  }
+  #load .swimmer {
+    position: absolute; top: 50%; left: 0; font-size: 20px; line-height: 1;
+    transform: translate(-50%, -55%) scaleX(-1); /* face the way it's going */
+    transition: left .15s linear; filter: drop-shadow(0 0 6px #ff5d8f66);
+  }
+  #load.unknown .swimmer { animation: drift 1.6s ease-in-out infinite alternate; }
+  @keyframes drift { from { left: 4%; } to { left: 96%; } }
+  #status.error { color: var(--pink); text-transform: none; letter-spacing: 0; }
+
+  /* the krill: tap it */
+  #krill {
+    all: unset; cursor: pointer; font-size: 38px; line-height: 1; display: inline-block;
+    filter: drop-shadow(0 0 10px #ff5d8f55); transition: transform .15s;
+  }
+  #krill:hover { transform: rotate(-8deg) scale(1.06); }
+  #krill.wiggle { animation: wiggle .55s ease-out; }
+  @keyframes wiggle {
+    0% { transform: rotate(0) scale(1); }
+    20% { transform: rotate(-22deg) scale(1.25); }
+    45% { transform: rotate(16deg) scale(.92); }
+    70% { transform: rotate(-8deg) scale(1.08); }
+    100% { transform: rotate(0) scale(1); }
+  }
+
+  /* bubbles drifting up behind everything */
+  #sea { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+  .bubble {
+    position: absolute; bottom: -40px; border-radius: 50%;
+    border: 1px solid #7deaff59; background: radial-gradient(circle at 30% 30%, #7deaff33, #4de3ff0a 60%);
+    animation: rise var(--t) linear var(--d) infinite;
+  }
+  .bubble.puff { animation: puff 1.1s ease-out forwards; bottom: auto; }
+  @keyframes rise {
+    0% { transform: translate(0, 0); opacity: 0; }
+    10% { opacity: 1; }
+    50% { transform: translate(var(--sway), -55vh); }
+    100% { transform: translate(0, -115vh); opacity: 0; }
+  }
+  @keyframes puff {
+    0% { transform: translate(0, 0) scale(.4); opacity: 1; }
+    100% { transform: translate(var(--sway), -90px) scale(1); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { .bubble, #krill.wiggle { animation: none; } .bubble { display: none; } }
+
+  /* search: one rounded box holding the icon, the field, a divider and the match count */
+  /* it sits in place, and floats at the top of the screen once scrolled past */
+  #search {
+    position: sticky; top: 10px; z-index: 5;
+    display: flex; align-items: center; gap: 12px; margin: 0 0 14px; padding: 0 14px; height: 44px;
+    border: 1px solid var(--line); border-radius: 14px; background: #101d33d9;
+    transition: background .15s, box-shadow .15s;
+  }
+  #search.floating { background: #101d33f5; box-shadow: 0 8px 24px #000b; backdrop-filter: blur(6px); }
+  #search[hidden] { display: none; }
+  #search:focus-within { border-color: #4de3ff80; box-shadow: 0 0 14px #4de3ff26; }
+  /* the tier filter: a button at the bar's left that opens a checklist */
+  #tiers-btn {
+    all: unset; flex: none; display: grid; place-items: center; width: 30px; height: 30px; margin-left: -6px;
+    border-radius: 8px; cursor: pointer; color: var(--cyan);
+  }
+  #tiers-btn:hover, #tiers-btn[aria-expanded="true"] { background: #4de3ff1f; }
+  #tiers-btn.active { color: var(--pink); } /* some tiers are hidden */
+  #tiers-btn svg { width: 18px; height: 18px; stroke: currentColor; }
+  #tiers {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 6; min-width: 210px; padding: 6px;
+    background: var(--shallow); border: 1px solid #4de3ff59; border-radius: 12px; box-shadow: 0 12px 32px #000c;
+  }
+  #tiers[hidden] { display: none; }
+  #tiers label { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; cursor: pointer; color: var(--foam); }
+  #tiers label:hover { background: #4de3ff14; }
+  #tiers label.all { border-bottom: 1px solid var(--line); border-radius: 8px 8px 0 0; margin-bottom: 4px; }
+  #tiers input { accent-color: var(--cyan); margin: 0; }
+  #tiers .dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 6px var(--ink); transition: opacity .15s; }
+  #tiers .all .dot { visibility: hidden; } /* keeps "All" lined up with the tiers */
+  #tiers label:has(input:not(:checked)) .dot { opacity: .18; box-shadow: none; } /* unticked: dimmed */
+  #tiers label:not(.all):has(input:not(:checked)) { color: var(--drift); }
+  #tiers .pts { margin-left: auto; color: var(--drift); font: 18px/1 var(--display); }
+  #search input {
+    all: unset; flex: 1; min-width: 0; height: 100%; color: var(--foam); font: 14px var(--mono);
+  }
+  #search input::placeholder { color: #3d4f6e; }
+  #search .divider { width: 1px; align-self: stretch; margin: 10px 0; background: var(--line); }
+  #matches { white-space: nowrap; font-size: 13px; color: var(--cyan); min-width: 90px; text-align: right; }
+  #matches.none { color: var(--pink); }
+  tr.empty td { color: #3d4f6e; text-align: center; padding: 14px; }
+
+  details.q { margin: 10px 0; border: 1px solid var(--line); border-radius: 14px; background: #101d33d9; overflow: hidden; }
+  details.q[open] { border-color: #4de3ff59; }
+  details.q > summary { padding: 12px 16px; cursor: pointer; list-style: none; display: flex; gap: 12px; align-items: baseline; }
+  details.q > summary .text { min-width: 0; overflow-wrap: anywhere; }
+  details.q > summary::-webkit-details-marker { display: none; }
+  details.q > summary::before { content: "▸"; color: var(--cyan); }
+  details.q[open] > summary::before { content: "▾"; }
+  .num { font: 22px/1 var(--display); color: var(--cyan); }
+  .text { flex: 1; color: var(--foam); font-weight: 600; }
+  .count { font-size: 12px; white-space: nowrap; }
+
+  .wrap { max-height: 70vh; overflow: auto; border-top: 1px solid var(--line); background: #050a14b3; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13px; }
+  col.score { width: 72px; } col.answer { width: 30%; } col.aliases { width: 110px; } col.pop { width: 120px; }
+  th {
+    position: sticky; top: 0; z-index: 1; background: var(--abyss); color: var(--drift);
+    text-align: left; font-weight: 600; font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    padding: 9px 12px; border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; white-space: nowrap;
+  }
+  th:hover { color: var(--foam); }
+  th[data-dir]::after { content: " ▼"; color: var(--cyan); }
+  th[data-dir="asc"]::after { content: " ▲"; }
+  tbody tr { height: var(--row); background: var(--tint); }
+  td {
+    padding: 7px 12px; color: #c9d6ee; border-bottom: 1px solid #4de3ff2e; /* a thin cyan line between answers */
+    vertical-align: top; overflow-wrap: anywhere;
+  }
+  .right { text-align: right; font-variant-numeric: tabular-nums; }
+  td.score { font: 20px/1 var(--display); color: var(--ink); padding-top: 6px; }
+  td.x { color: #3d4f6e; }
+  tr.pad { height: auto; background: none; } tr.pad td { padding: 0; border: 0; }
+  button.aliases { all: unset; cursor: pointer; color: var(--cyan); }
+  button.aliases:hover { text-decoration: underline; }
+
+  /* the aliases box: centered over a dimmed page, tinted like its answer's row */
+  #pop { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; background: #050a14b3; backdrop-filter: blur(2px); }
+  #pop[hidden] { display: none; }
+  #pop .box {
+    width: min(420px, calc(100vw - 32px)); max-height: 70vh; display: flex; flex-direction: column;
+    background: linear-gradient(var(--tint), var(--tint)), var(--shallow);
+    border: 1px solid var(--ink); border-radius: 14px; box-shadow: 0 12px 40px #000c;
+  }
+  #pop h2 {
+    margin: 0; padding: 12px 16px; font: 24px/1.1 var(--display); color: var(--foam);
+    display: flex; gap: 12px; align-items: baseline; border-bottom: 1px solid #4de3ff2e;
+  }
+  #pop h2 span { flex: 1; overflow-wrap: anywhere; }
+  #pop h2 em { font-style: normal; color: var(--ink); }
+  #pop button.close { all: unset; cursor: pointer; color: var(--drift); font-size: 18px; line-height: 1; }
+  #pop button.close:hover { color: var(--foam); }
+  #pop ul { margin: 0; padding: 10px 16px 14px 34px; overflow: auto; color: #c9d6ee; }
+  #pop li + li { margin-top: 2px; }
+</style>
+</head>
+<body>
+<div id="sea" aria-hidden="true"></div>
+<main>
+  <header>
+    <button id="krill" title="blub" aria-label="krill">🦐</button>
+    <h1 id="title">Krillion Day</h1>
+    <button class="day" id="prev" title="previous day" aria-label="previous day">◀</button>
+    <button class="day" id="next" title="next day" aria-label="next day">▶</button>
+  </header>
+  <div id="load" aria-hidden="true"><div class="fill"></div><span class="swimmer">🦐</span></div>
+  <p id="status">Loading…</p>
+  <div id="search-spot" aria-hidden="true"></div>
+  <div id="search" hidden>
+    <button id="tiers-btn" type="button" title="filter tiers" aria-label="filter tiers" aria-haspopup="true" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 5h17l-6.5 8v5.5l-4 1.8V13z"/></svg>
+    </button>
+    <div id="tiers" role="menu" hidden></div>
+    <input id="query" type="search" placeholder="Search answers and aliases…" aria-label="search answers and aliases" autocomplete="off" spellcheck="false">
+    <span class="divider"></span>
+    <span id="matches"></span>
+  </div>
+  <section id="questions"></section>
+</main>
+<div id="pop" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="pop-title">
+    <h2><span id="pop-title"></span><button class="close" aria-label="close">✕</button></h2>
+    <ul></ul>
+  </div>
+</div>
+<script>
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const num = (n) => n.toLocaleString();
+  const ROW = 34;    // px: the shortest row (--row); wrapped rows are taller
+  const BUFFER = 20; // rows drawn above and below the visible ones, so fast scrolls don't flash
+  // "none": right-aligned like the numbers, except under Quip, which reads left
+  const X = '<td class="x right">X</td>';
+  const X_LEFT = '<td class="x">X</td>';
+
+  // ◀ ▶ change the day later; for now they do nothing
+  $("prev").onclick = $("next").onclick = () => {};
+
+  // tier names as css classes ("too-clever" and friends all become "tooclever")
+  const tierClass = (t) => String(t).toLowerCase().replace(/[^a-z]/g, "");
+
+  // the columns, and how each sorts. ties always fall back to score, highest first
+  const COLUMNS = [
+    { key: "score", label: "Score", cls: "score right", value: (a) => a.score },
+    { key: "answer", label: "Answer", cls: "answer", value: (a) => a.answer.toLowerCase() },
+    { key: "aliases", label: "Aliases", cls: "aliases right", value: (a) => a.aliases.length },
+    { key: "pop", label: "Popularity", cls: "pop right", value: (a) => (a.popularity == null ? -1 : a.popularity) },
+    { key: "quip", label: "Quip", cls: "quip", value: (a) => (a.quip == null ? "" : a.quip.toLowerCase()) },
+  ];
+
+  function sorted(answers, col, dir) {
+    const sign = dir === "asc" ? 1 : -1;
+    const value = COLUMNS.find((c) => c.key === col).value;
+    return answers.slice().sort((a, b) => {
+      const va = value(a), vb = value(b);
+      if (va !== vb) return (va < vb ? -1 : 1) * sign;
+      return b.score - a.score;
+    });
+  }
+
+  function row(a, i) {
+    const aliases = a.aliases.length
+      ? `<td class="right"><button class="aliases" data-i="${i}">${a.aliases.length}</button></td>`
+      : X;
+    return `<tr class="${tierClass(a.tier)}" data-i="${i}"><td class="score right">${a.score}</td><td>${esc(a.answer)}</td>${aliases}`
+      + (a.popularity == null ? X : `<td class="right">${num(a.popularity)}</td>`)
+      + (a.quip == null ? X_LEFT : `<td class="quip">${esc(a.quip)}</td>`) + "</tr>";
+  }
+
+  // one question's table. only the rows in (and just around) the view exist in
+  // the page; spacer rows stand in for the rest, so 70k answers scroll like 30.
+  // rows wrap, so their height is an estimate, kept close to the average of
+  // the rows last drawn; being a little off just means a few extra rows
+  function table(q, wrap) {
+    let col = "score", dir = "desc";
+    let keep = null; // the search filter: which answers to show (null: all)
+    const pick = () => sorted(keep ? q.answers.filter(keep) : q.answers, col, dir);
+    let rows = pick();
+    wrap.innerHTML = "<table><colgroup>" + COLUMNS.map((c) => `<col class="${c.key}">`).join("") + "</colgroup>"
+      + "<thead><tr>" + COLUMNS.map((c) => `<th class="${c.cls}" data-col="${c.key}">${c.label}</th>`).join("") + "</tr></thead>"
+      + "<tbody></tbody></table>";
+    const head = wrap.querySelector("thead");
+    const body = wrap.querySelector("tbody");
+    head.querySelector('[data-col="score"]').dataset.dir = "desc";
+
+    let drawn = "";
+    let est = ROW; // estimated px per row
+    function draw() {
+      const top = Math.max(0, wrap.scrollTop - head.offsetHeight);
+      const first = Math.max(0, Math.floor(top / est) - BUFFER);
+      // a view's worth of the shortest possible rows always fills it. the table
+      // shrinks to fit short lists, so its view is sized for the tallest it gets
+      const view = Math.max(wrap.clientHeight, innerHeight * 0.7);
+      const last = Math.min(rows.length, first + Math.ceil(view / ROW) + 2 * BUFFER);
+      const key = `${first}:${last}`;
+      if (key === drawn) return;
+      drawn = key;
+      if (!rows.length) {
+        body.innerHTML = '<tr class="empty"><td colspan="5">No matches!</td></tr>';
+        return;
+      }
+      let html = `<tr class="pad"><td colspan="5" style="height:${Math.round(first * est)}px"></td></tr>`;
+      for (let i = first; i < last; i++) html += row(rows[i], i);
+      html += `<tr class="pad"><td colspan="5" style="height:${Math.round((rows.length - last) * est)}px"></td></tr>`;
+      body.innerHTML = html;
+      // learn how tall rows really are here, for the spacers next time
+      const real = body.children;
+      if (real.length > 2) {
+        const avg = (real[real.length - 2].getBoundingClientRect().bottom - real[1].getBoundingClientRect().top) / (real.length - 2);
+        if (avg > 0) est = Math.max(ROW, est * 0.6 + avg * 0.4);
+      }
+    }
+    let queued = false;
+    wrap.addEventListener("scroll", () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => { queued = false; draw(); });
+    }, { passive: true });
+
+    // a header click sorts by that column: highest first, again for lowest first
+    head.addEventListener("click", (e) => {
+      const th = e.target.closest("th");
+      if (!th) return;
+      dir = th.dataset.dir === "desc" ? "asc" : "desc";
+      col = th.dataset.col;
+      head.querySelectorAll("th").forEach((h) => delete h.dataset.dir);
+      th.dataset.dir = dir;
+      rows = pick();
+      wrap.scrollTop = 0;
+      drawn = "";
+      draw();
+    });
+
+    body.addEventListener("click", (e) => {
+      const btn = e.target.closest("button.aliases");
+      if (btn) showAliases(rows[+btn.dataset.i]);
+    });
+    draw();
+
+    return {
+      // shows only the answers keep accepts (null: all), keeping the sort; back to the top
+      filter(fn) {
+        keep = fn;
+        rows = pick();
+        wrap.scrollTop = 0;
+        drawn = "";
+        draw();
+        return rows.length;
+      },
+    };
+  }
+
+  // aliases open in a centered box (rows keep their height). it scrolls on its
+  // own and closes on ✕, Esc, or a click outside it
+  const pop = $("pop");
+  function showAliases(a) {
+    pop.className = tierClass(a.tier);
+    $("pop-title").innerHTML = `Aliases for <em>${esc(a.answer)}</em>`;
+    pop.querySelector("ul").innerHTML = a.aliases.map((x) => `<li>${esc(x)}</li>`).join("");
+    pop.hidden = false;
+    pop.querySelector("ul").scrollTop = 0;
+  }
+  const closeAliases = () => { pop.hidden = true; };
+  pop.addEventListener("click", (e) => {
+    if (e.target === pop || e.target.closest("button.close")) closeAliases();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAliases(); });
+
+  const views = []; // per question: its <details>, and its table once built
+
+  function question(q, i) {
+    const d = document.createElement("details");
+    d.className = "q";
+    d.innerHTML = `<summary><span class="num">${i + 1}.</span><span class="text">${esc(q.text)}</span>`
+      + `<span class="count">${num(q.answers.length)}</span></summary><div class="wrap"></div>`;
+    const view = { d, q, table: null, count: d.querySelector(".count") };
+    view.ensure = () => (view.table ||= table(q, d.querySelector(".wrap")));
+    d.addEventListener("toggle", () => { if (d.open) view.ensure(); });
+    views[i] = view;
+    return d;
+  }
+
+  // search filters every table to the answers whose name or an alias contains
+  // the text (case and accents don't matter), opening the ones with matches;
+  // clearing it shows everything again and closes them
+  const norm = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const keys = new Map(); // answer -> its name and aliases, normalized once
+
+  // the tiers shown (all, to start), from the tier filter
+  let tiers = [];          // [{tier, score}] in today's data, best first
+  const shown = new Set(); // tiers ticked
+
+  // applies the text and the tier filter to every table. a text change also
+  // opens the questions with matches and shuts the rest (clearing it shuts
+  // them all); a tier change leaves what's open alone
+  function search(text, textChanged = true) {
+    const needle = norm(text.trim());
+    const allTiers = shown.size === tiers.length;
+    const label = $("matches");
+    const keep = !needle && allTiers ? null
+      : (a) => shown.has(a.tier) && (!needle || keys.get(a).some((k) => k.includes(needle)));
+    let total = 0;
+    for (const v of views) {
+      if (!keep && !v.table) { if (textChanged) v.d.open = false; continue; } // never built: nothing to reset
+      const n = v.ensure().filter(keep);
+      // a question with no matches stays shut (opening it shows "No matches!")
+      if (textChanged) v.d.open = !!needle && n > 0;
+      total += n;
+      v.count.textContent = keep ? `${num(n)} / ${num(v.q.answers.length)}` : num(v.q.answers.length);
+    }
+    label.className = keep && !total ? "none" : "";
+    label.textContent = !keep ? "" : total ? `${num(total)} match${total === 1 ? "" : "es"}!` : "No matches!";
+    $("tiers-btn").classList.toggle("active", !allTiers);
+  }
+
+  // the tier checklist: "All" first, then each tier in today's data
+  const TIER_NAMES = { krillion: "Krillion", tooclever: "Too clever", deepcut: "Deep cut", rare: "Rare", schooler: "Schooler", plankton: "Plankton" };
+  function buildTiers(data) {
+    const seen = new Map();
+    for (const q of data.questions) for (const a of q.answers) if (!seen.has(a.tier)) seen.set(a.tier, a.score);
+    tiers = [...seen].map(([tier, score]) => ({ tier, score })).sort((x, y) => y.score - x.score);
+    tiers.forEach((t) => shown.add(t.tier));
+    $("tiers").innerHTML = '<label class="all"><span class="dot"></span><input type="checkbox" data-tier="*" checked>All</label>'
+      + tiers.map((t) => `<label class="${tierClass(t.tier)}"><span class="dot"></span><input type="checkbox" data-tier="${esc(t.tier)}" checked>`
+        + `${esc(TIER_NAMES[tierClass(t.tier)] || t.tier)}<span class="pts">${t.score}</span></label>`).join("");
+  }
+  $("tiers").addEventListener("change", (e) => {
+    const box = e.target;
+    if (box.dataset.tier === "*") {
+      shown.clear();
+      if (box.checked) tiers.forEach((t) => shown.add(t.tier));
+    } else if (box.checked) shown.add(box.dataset.tier);
+    else shown.delete(box.dataset.tier);
+    const all = $("tiers").querySelector('[data-tier="*"]');
+    all.checked = shown.size === tiers.length;
+    all.indeterminate = shown.size > 0 && shown.size < tiers.length;
+    $("tiers").querySelectorAll('input:not([data-tier="*"])').forEach((b) => { b.checked = shown.has(b.dataset.tier); });
+    search($("query").value, false);
+  });
+  const tiersOpen = (open) => {
+    $("tiers").hidden = !open;
+    $("tiers-btn").setAttribute("aria-expanded", String(open));
+  };
+  $("tiers-btn").addEventListener("click", () => tiersOpen($("tiers").hidden));
+  document.addEventListener("click", (e) => { if (!e.target.closest("#tiers, #tiers-btn")) tiersOpen(false); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") tiersOpen(false); });
+
+  // floating = its normal spot has scrolled out of view
+  new IntersectionObserver(([e]) => $("search").classList.toggle("floating", !e.isIntersecting && e.boundingClientRect.top < 0))
+    .observe($("search-spot"));
+
+  let typing;
+  $("query").addEventListener("input", (e) => {
+    clearTimeout(typing);
+    typing = setTimeout(() => search(e.target.value), 200);
+  });
+
+  // 13716583 -> "13.7 MB"
+  function size(bytes) {
+    const units = ["B", "KB", "MB", "GB"];
+    let i = 0;
+    while (bytes >= 1000 && i < units.length - 1) { bytes /= 1000; i++; }
+    return `${i ? bytes.toFixed(1) : bytes} ${units[i]}`;
+  }
+
+  // the day's data, read as it streams in so the bar can show how far along it is
+  async function load(day) {
+    const bar = $("load"), fill = bar.querySelector(".fill"), swimmer = bar.querySelector(".swimmer");
+    const show = (got, total) => {
+      const p = (Math.min(1, got / total) * 100).toFixed(1) + "%";
+      fill.style.width = swimmer.style.left = p;
+      $("status").textContent = `Loading… (${size(got)} / ${size(total)})`;
+    };
+    // TEMPORARY: /api/day is stood in for by server.py with krillion.io's today (see there)
+    const res = await fetch("/api/day", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ day }) });
+    const total = +res.headers.get("X-Uncompressed-Length") || 0;
+    if (!total || !res.body) bar.classList.add("unknown"); // no size: the krill just swims back and forth
+    const reader = res.body.getReader();
+    const chunks = [];
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      got += value.length;
+      if (total) show(got, total);
+    }
+    // a beat at 100% before the tables take over
+    $("status").textContent = "Done!";
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const bytes = new Uint8Array(got);
+    let at = 0;
+    for (const c of chunks) { bytes.set(c, at); at += c.length; }
+    const body = JSON.parse(new TextDecoder().decode(bytes));
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    return body;
+  }
+
+  load(null)
+    .then((data) => {
+      document.title = $("title").textContent = `Krillion Day ${data.day}`;
+      $("questions").replaceChildren(...data.questions.map(question));
+      for (const q of data.questions) for (const a of q.answers) keys.set(a, [norm(a.answer), ...a.aliases.map(norm)]);
+      buildTiers(data);
+      $("search").hidden = false;
+      $("status").textContent = data.asOf ? `Popularity as of ${new Date(data.asOf).toLocaleString()}` : "";
+    })
+    .catch((err) => {
+      $("status").className = "error";
+      $("status").textContent = `Couldn't load the day: ${err.message}`;
+    })
+    .finally(() => { $("load").hidden = true; });
+
+  // the sea: a handful of bubbles drifting up, each with its own size, pace and sway
+  const sea = $("sea");
+  function bubble(size, extra) {
+    const b = document.createElement("span");
+    b.className = "bubble" + (extra ? " " + extra : "");
+    b.style.width = b.style.height = size + "px";
+    b.style.setProperty("--sway", (Math.random() * 60 - 30).toFixed(0) + "px");
+    return b;
+  }
+  for (let i = 0; i < 14; i++) {
+    const b = bubble(4 + Math.random() * 14);
+    b.style.left = (Math.random() * 100).toFixed(1) + "%";
+    b.style.setProperty("--t", (12 + Math.random() * 16).toFixed(1) + "s");
+    b.style.setProperty("--d", (-Math.random() * 28).toFixed(1) + "s"); // already mid-rise on load
+    sea.append(b);
+  }
+
+  // the krill: tap it and it wriggles and lets out a few bubbles
+  const krill = $("krill");
+  krill.addEventListener("click", () => {
+    krill.classList.remove("wiggle");
+    void krill.offsetWidth; // restart the wiggle if it's tapped mid-wiggle
+    krill.classList.add("wiggle");
+    const r = krill.getBoundingClientRect();
+    for (let i = 0; i < 5; i++) {
+      const b = bubble(5 + Math.random() * 9, "puff");
+      b.style.left = r.left + r.width * (0.3 + Math.random() * 0.5) + "px";
+      b.style.top = r.top + "px";
+      b.style.animationDelay = (i * 0.07).toFixed(2) + "s";
+      b.addEventListener("animationend", () => b.remove());
+      sea.append(b);
+    }
+  });
+</script>
+</body>
+</html>
