@@ -45,3 +45,29 @@ func TestQuantile(t *testing.T) {
 		t.Error("an empty histogram has a quantile")
 	}
 }
+
+func TestFormatPercent(t *testing.T) {
+	for p, want := range map[float64]string{95.6549: "95.65", 5.9: "5.90", 100: "100.00", 99.999: "99.99", 0: "0.00"} {
+		if got := FormatPercent(p); got != want {
+			t.Errorf("FormatPercent(%v) = %q, want %q", p, got, want)
+		}
+	}
+}
+
+func TestMisplaced(t *testing.T) {
+	falling := []float64{400, 200, 100, 50}
+	// exact at a bucket edge, with even buckets and in an empty bucket
+	if m := Misplaced(falling, 35); m != 0 {
+		t.Errorf("edge misplaces %v", m)
+	}
+	if m := Misplaced([]float64{100, 100, 100, 100}, 50); m != 0 {
+		t.Errorf("even buckets misplace %v", m)
+	}
+	if m := Misplaced([]float64{100, 0, 100}, 50); m != 0 {
+		t.Errorf("an empty bucket misplaces %v", m)
+	}
+	// mid-bucket 1: edges average 300 and 150, so 150·¼/2 players
+	if m := Misplaced(falling, 52.5); math.Abs(m-150*0.25/2) > 1e-9 {
+		t.Errorf("mid misplaces %v", m)
+	}
+}

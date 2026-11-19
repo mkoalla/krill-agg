@@ -112,7 +112,7 @@ func Register(bcp *types.BotCommandPackage) {
 			Options: []*discordgo.ApplicationCommandOption{{
 				Type:        discordgo.ApplicationCommandOptionInteger,
 				Name:        "day",
-				Description: "krillion # (default: today)",
+				Description: krillion.DAY_OPTION + " (default: today)",
 			}},
 		},
 		Metadata: types.CommandMetadata{MinTrustLevel: authorize.DEFAULT},
@@ -126,7 +126,7 @@ func Register(bcp *types.BotCommandPackage) {
 			day := krillion.Today()
 			for _, opt := range i.ApplicationCommandData().Options {
 				if opt.Name == "day" {
-					day = int(opt.IntValue())
+					day = krillion.Resolve(int(opt.IntValue()))
 				}
 			}
 			edit := func(e *discordgo.WebhookEdit) error {

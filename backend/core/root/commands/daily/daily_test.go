@@ -1,10 +1,13 @@
 package daily
 
 import (
+	"errors"
 	"krill-agg/root/info/krillionapi"
 	"krill-agg/root/krillion"
 	"krill-agg/root/managers/scores"
 	"testing"
+
+	"github.com/bwmarrin/discordgo"
 )
 
 func TestCommas(t *testing.T) {
@@ -16,10 +19,8 @@ func TestCommas(t *testing.T) {
 }
 
 func TestPercentileLine(t *testing.T) {
-	for p, want := range map[float64]string{5.9: "`~05%` - <@1>", 53.69: "`~53%` - <@1>", 99.99: "`~99%` - <@1>", 100: "`~100%` - <@1>"} {
-		if got := percentileLine("1", p); got != want {
-			t.Errorf("percentileLine(%v) = %q, want %q", p, got, want)
-		}
+	if got := percentileLine("1", "95.65"); got != "`95.65%` - <@1>" {
+		t.Errorf("percentileLine() = %q", got)
 	}
 }
 
@@ -63,7 +64,7 @@ func TestCombined(t *testing.T) {
 	today := krillion.Today()
 	dist := krillionapi.Stats{Sample: 3245071, Dist: []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3245071, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 	entries := []scores.Entry{{UserID: "1", Score: krillion.PlayerScore{Day: today, Score: 415, Choices: []string{"🦑", "🦑", "🦑", "🐟", "🦑", "🦑", "🏮"}}}}
-	want := "**Scores**\n`🦑🦑🦑🐟🦑🦑🏮` - `415` - <@1>\n\n**Percentiles**\nPlayers today: `3,245,071`\n\n`~100%` - <@1>"
+	want := "**Scores**\n`🦑🦑🦑🐟🦑🦑🏮` - `415` - <@1>\n\n**Percentiles**\nPlayers today: `3,245,071`\n\n`100.00%` - <@1>"
 	got := Combined(today, entries, dist)
 	if got.Title != "" || got.Description != want {
 		t.Errorf("Combined() = %q / %q\nwant %q", got.Title, got.Description, want)
@@ -80,5 +81,30 @@ func TestCombined(t *testing.T) {
 	}
 	if none := Combined(5, nil, krillionapi.Stats{}); none.Description != "**Scores**\nNo players yet!\n\n**Percentiles**\n"+NO_DIST {
 		t.Errorf("no-dist Combined() = %q", none.Description)
+	}
+}
+
+func TestFailNote(t *testing.T) {
+	err := errors.New(`Patch "https://discord.com/api/v9/webhooks/1565064/aW50ZXJhY3Rpb24/messages/@original": context deadline exceeded`)
+	want := "-# couldn't produce image: Patch discord: context deadline exceeded"
+	if got := FailNote(err); got != want {
+		t.Errorf("FailNote() = %q, want %q", got, want)
+	}
+	if got := FailNote(errors.New("renderer down")); got != "-# couldn't produce image: renderer down" {
+		t.Errorf("FailNote() = %q", got)
+	}
+}
+
+func TestLanded(t *testing.T) {
+	msg := &discordgo.Message{Attachments: []*discordgo.MessageAttachment{{Filename: "daily_124.webp"}}}
+	fetch := func() (*discordgo.Message, error) { return msg, nil }
+	if got, ok := Landed(fetch, "daily_124.webp"); !ok || got != msg {
+		t.Error("the upload landed but wasn't found")
+	}
+	if _, ok := Landed(fetch, "daily_125.webp"); ok {
+		t.Error("another file counted as landed")
+	}
+	if _, ok := Landed(func() (*discordgo.Message, error) { return nil, errors.New("down") }, "daily_124.webp"); ok {
+		t.Error("a failed fetch counted as landed")
 	}
 }

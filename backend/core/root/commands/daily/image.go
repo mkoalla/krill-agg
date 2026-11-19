@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -201,6 +202,32 @@ func JumpLink(guild string, msg *discordgo.Message) string {
 	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", guild, msg.ChannelID, msg.ID)
 }
 
+// a request to discord names its url in errors, and an interaction's url
+// carries its token (good for editing that reply for 15 minutes), so it's
+// swapped out before an error goes in a message
+var discordURL = regexp.MustCompile(`"?https?://[^\s"]*/(webhooks|interactions)/[^\s"]*"?`)
+
+// an error fit to show in a channel: "couldn't produce image: ..."
+func FailNote(reason error) string {
+	return "-# couldn't produce image: " + discordURL.ReplaceAllString(reason.Error(), "discord")
+}
+
+// whether an upload that errored landed anyway: discord can apply an edit and
+// still answer too late. fetch reads the message as it is now; it's returned
+// when it carries the file called name
+func Landed(fetch func() (*discordgo.Message, error), name string) (*discordgo.Message, bool) {
+	msg, err := fetch()
+	if err != nil || msg == nil {
+		return nil, false
+	}
+	for _, a := range msg.Attachments {
+		if a.Filename == name {
+			return msg, true
+		}
+	}
+	return nil, false
+}
+
 // the cdn url discord gave the uploaded card. the embed's image is rewritten
 // from attachment:// to it; the attachment list is the fallback
 func PostedURL(msg *discordgo.Message) string {
@@ -386,7 +413,7 @@ func withImage(s *discordgo.Session, post sender, bcp *types.BotCommandPackage, 
 		t.lead.publish(JumpLink(snap.Guild, msg))
 	}
 	fail := func(reason error) (*discordgo.Message, error) {
-		_, errEdit := send(imageEmbed("-# couldn't produce image: "+reason.Error(), ""), nil)
+		_, errEdit := send(imageEmbed(FailNote(reason), ""), nil)
 		return msg, errors.Join(fmt.Errorf("daily image: %v", reason), errEdit)
 	}
 
@@ -405,7 +432,11 @@ func withImage(s *discordgo.Session, post sender, bcp *types.BotCommandPackage, 
 	name := filepath.Base(path)
 	final, err := send(imageEmbed("", "attachment://"+name), []*discordgo.File{{Name: name, ContentType: "image/webp", Reader: f}})
 	if err != nil {
-		return fail(err)
+		landed, ok := Landed(func() (*discordgo.Message, error) { return s.ChannelMessage(msg.ChannelID, msg.ID) }, name)
+		if !ok {
+			return fail(err)
+		}
+		final = landed
 	}
 	url := PostedURL(final)
 	if url == "" {

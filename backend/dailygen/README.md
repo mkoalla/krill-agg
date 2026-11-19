@@ -50,6 +50,7 @@ pink); a missing or unreadable file keeps the label.
 
 `percentile` is optional; without it the card estimates it from `dist` the same
 way the bot does (buckets below the score plus a linear share of its own).
+It's drawn to two decimals, floored.
 
 ## Server (what the bot calls)
 

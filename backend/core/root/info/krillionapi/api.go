@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -76,6 +78,43 @@ func (s Stats) Percentile(score float64) float64 {
 	into := (score - float64(bucket*BUCKET_WIDTH)) / BUCKET_WIDTH
 	below += s.Dist[bucket] * min(into, 1)
 	return 100 * below / float64(s.Sample)
+}
+
+// how many players the straight line inside score's bucket could misplace, if
+// they thin out (or bunch up) across it instead of spreading evenly. the
+// density at each edge is taken as the average of the buckets either side;
+// under a density running straight between those, the linear guess is off by
+// |edge difference|·t(1-t)/2 players at t of the way through. nothing at the
+// edges, where the histogram is exact, or in an empty bucket
+func Misplaced(dist []float64, score float64) float64 {
+	if len(dist) == 0 {
+		return 0
+	}
+	score = max(score, 0)
+	b := min(int(score)/BUCKET_WIDTH, len(dist)-1)
+	if dist[b] <= 0 {
+		return 0
+	}
+	t := min((score-float64(b*BUCKET_WIDTH))/BUCKET_WIDTH, 1)
+	neighbor := func(j int) float64 {
+		if j < 0 || j >= len(dist) {
+			return dist[b]
+		}
+		return dist[j]
+	}
+	low, high := (neighbor(b-1)+dist[b])/2, (dist[b]+neighbor(b+1))/2
+	return math.Abs(high-low) * t * (1 - t) / 2
+}
+
+// a percentile to two decimals, floored so nobody is rounded up past where
+// they are: "95.65"
+func FormatPercent(p float64) string {
+	return strconv.FormatFloat(math.Floor(p*100+1e-9)/100, 'f', 2, 64)
+}
+
+// Percentile, formatted
+func (s Stats) PercentileText(score float64) string {
+	return FormatPercent(s.Percentile(score))
 }
 
 // Percentile backwards: the score a share q (0-1) of the histogram is under,

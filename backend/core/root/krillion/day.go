@@ -41,6 +41,17 @@ func Today() int {
 	return DayAt(time.Now())
 }
 
+// what a day option says it takes; options read it back through Resolve
+const DAY_OPTION = "krillion #, or 0 for today and -n for n days ago"
+
+// a day as typed: a krillion # (1 on), or 0 for today and -n for n days ago
+func Resolve(day int) int {
+	if day <= 0 {
+		return Today() + day
+	}
+	return day
+}
+
 // the moment a puzzle goes live: midnight in RESET_ZONE on its date
 func StartOf(day int) time.Time {
 	y, m, d := dayOne.AddDate(0, 0, day-1).Date()

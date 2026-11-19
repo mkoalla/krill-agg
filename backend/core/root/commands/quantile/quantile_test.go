@@ -74,8 +74,11 @@ func TestGlobalEstimate(t *testing.T) {
 	if want, _ := krillionapi.Quantile(dist, 0.75); e.score != want || !near(e.score, 367.5, 1e-9) {
 		t.Errorf("score = %v, want the in-bucket quantile 367.5", e.score)
 	}
-	if e.err <= 0 || e.err > 2 {
-		t.Errorf("err = %v from 1000 games 17.5 apart", e.err)
+	// sampling (about 1 from 1000 games 17.5 apart) plus placement: halfway
+	// into bucket 10, whose edges average 500 and 250 players
+	place := placementError(dist, e.score)
+	if !near(place, 250*0.25/2/500*35, 1e-9) || e.err <= place || e.err > place+2 {
+		t.Errorf("err = %v, placement %v", e.err, place)
 	}
 	if _, ok := globalEstimate(krillionapi.Stats{Dist: make([]float64, 20)}, 0.5, 0.9); ok {
 		t.Error("an estimate with no histogram")
@@ -83,16 +86,36 @@ func TestGlobalEstimate(t *testing.T) {
 }
 
 func TestEmbed(t *testing.T) {
-	e := embed("Trick", &estimate{412.4, 8.6}, &estimate{398.2, 0.3}, 97.5, 90)
+	e := embed("Trick", &estimate{412.4, 8.6}, &estimate{398.2, 0.3}, &estimate{421.7, 3.2}, 97.5, 90)
 	if e.Title != "Krillion Scores to Beat 97.5%" {
 		t.Errorf("title = %q", e.Title)
 	}
-	want := "**Trick**: 412 ± 9\n**Global**: 398 ± 0\n-# 90% confidence interval"
+	want := "**Global (Today)**: 422 ± 3\n**Global**: 398 ± 0\n**Trick**: 412 ± 9\n-# 90% confidence interval"
 	if e.Description != want {
 		t.Errorf("description = %q, want %q", e.Description, want)
 	}
-	none := embed("Trick", nil, nil, 10, 99.5)
-	if !strings.Contains(none.Description, "not enough games") || !strings.Contains(none.Description, "-# 99.5% confidence") {
+	none := embed("Trick", nil, nil, nil, 10, 99.5)
+	if !strings.Contains(none.Description, "not enough games") || !strings.Contains(none.Description, "no histogram for today") || !strings.Contains(none.Description, "-# 99.5% confidence") {
 		t.Errorf("empty = %q", none.Description)
+	}
+}
+
+func TestPlacementError(t *testing.T) {
+	flat := []float64{100, 100, 100, 100}
+	if got := placementError(flat, 52.5); got != 0 {
+		t.Errorf("even buckets misplace by %v", got)
+	}
+	falling := []float64{400, 200, 100, 50}
+	// bucket edges are exact; mid-bucket is the worst
+	edge, quarter, mid := placementError(falling, 35), placementError(falling, 43.75), placementError(falling, 52.5)
+	if edge != 0 || quarter <= 0 || mid <= quarter {
+		t.Errorf("edge %v, quarter %v, mid %v", edge, quarter, mid)
+	}
+	// edges average 300 and 150: 150·¼/2 players over 200 per bucket
+	if !near(mid, 150*0.25/2/200*35, 1e-9) {
+		t.Errorf("mid = %v", mid)
+	}
+	if got := placementError([]float64{0, 100}, 10); got != 0 {
+		t.Errorf("an empty bucket misplaces by %v", got)
 	}
 }

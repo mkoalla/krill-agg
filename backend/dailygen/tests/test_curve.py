@@ -42,9 +42,10 @@ def test_percentile_matches_bot(score, want):
     assert curve.percentile(SNAPSHOT, score) == pytest.approx(want, abs=0.01)
 
 
-@pytest.mark.parametrize("p,want", [(71.98, "71"), (5.9, "5"), (99.5, "99.50"), (99.987, "99.99"), (100, "100.00")])
+@pytest.mark.parametrize("p,want", [(71.98, "71.98"), (5.9, "5.90"), (99.5, "99.50"), (99.987, "99.98"), (100, "100.00"), (95.6549, "95.65")])
 def test_format_percentile(p, want):
     assert curve.format_percentile(p) == want
+
 
 
 def test_days():

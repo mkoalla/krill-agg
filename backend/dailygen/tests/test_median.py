@@ -32,7 +32,7 @@ def test_header_and_footer():
     # the guild's median big, everyone's difference beside it
     assert ">362<" in svg and ">(+29) VS GLOBAL MEDIAN<" in svg and "1-WEEK MOVING AVERAGES" in svg
     assert ">KRILL CLUB<" in svg and ">ALL PLAYERS<" in svg
-    assert ">BETTER THAN 61%<" in svg and ">3,245,071 TOTAL DIVES<" in svg
+    assert ">BETTER THAN 61.70%<" in svg and ">3,245,071 TOTAL DIVES<" in svg
 
 
 def test_everyone_cyan_under_the_guild_yellow():

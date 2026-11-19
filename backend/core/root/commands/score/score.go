@@ -2,13 +2,12 @@ package score
 
 import (
 	"fmt"
-	"krill-agg/root/commands/stats"
 	"krill-agg/root/info/krillionapi"
 	"krill-agg/root/info/theme"
 	"krill-agg/root/krillion"
 	"krill-agg/root/managers/authorize"
+	"krill-agg/root/managers/distributions"
 	"krill-agg/root/types"
-	"strconv"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -41,7 +40,7 @@ func Register(bcp *types.BotCommandPackage) {
 				{
 					Type:        discordgo.ApplicationCommandOptionInteger,
 					Name:        "day",
-					Description: "krillion # (default: today)",
+					Description: krillion.DAY_OPTION + " (default: today)",
 				},
 			},
 		},
@@ -64,7 +63,7 @@ func Register(bcp *types.BotCommandPackage) {
 						user = u
 					}
 				case "day":
-					day = int(opt.IntValue())
+					day = krillion.Resolve(int(opt.IntValue()))
 				}
 			}
 
@@ -77,15 +76,21 @@ func Register(bcp *types.BotCommandPackage) {
 				return edit(s, i, &discordgo.WebhookEdit{Content: &content})
 			}
 
-			// krillion only ranks today's puzzle
-			rank := stats.PAST_NOTE
+			// from the histogram rather than krillion's betterThan, which is
+			// rounded to a whole percent (95.5% reads as 96). krillion only
+			// serves today's; older days use the one saved for them
+			var rank string
 			if day == today {
 				dist, err := krillionapi.Complete(krillion.DateOf(day), p.Score)
 				if err != nil {
 					rank = "-# Couldn't reach krillion for a percentile."
 				} else {
-					rank = fmt.Sprintf("Better than `%s%%` of players", strconv.FormatFloat(dist.BetterThan, 'f', -1, 64))
+					rank = fmt.Sprintf("Better than `%s%%` of players", dist.PercentileText(float64(p.Score)))
 				}
+			} else if dist, ok := bcp.Distributions.Get(day); ok && distributions.HasDist(dist) {
+				rank = fmt.Sprintf("Better than `%s%%` of players that day", dist.PercentileText(float64(p.Score)))
+			} else {
+				rank = "-# Krillion has no score distribution saved for that day."
 			}
 
 			embeds := []*discordgo.MessageEmbed{{

@@ -1,17 +1,22 @@
 // Package quantile answers what score beats p% of games (the p-th
-// percentile), in this server and across every krillion player, all-time.
+// percentile), in this server and across every krillion player, all-time
+// and on today's puzzle alone.
 //
 // The server's answer assumes its scores are normal: its mean plus z
 // standard deviations, from running totals the scores manager keeps (no full
 // read per ask). Everyone's comes from krillion's saved histograms, added up:
-// the same in-bucket interpolation the percentiles use, run backwards. Both
-// carry a confidence interval for the estimate, again assuming normal scores.
+// the same in-bucket interpolation the percentiles use, run backwards. Today's
+// runs the same on today's live histogram, fetched per ask. All three
+// carry a confidence interval for the estimate, again assuming normal scores;
+// the histogram ones add how far the score could sit from where the straight
+// line inside its bucket puts it.
 package quantile
 
 import (
 	"fmt"
 	"krill-agg/root/info/krillionapi"
 	"krill-agg/root/info/theme"
+	"krill-agg/root/krillion"
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/managers/scores"
 	"krill-agg/root/types"
@@ -68,8 +73,19 @@ func guildEstimate(m scores.Moments, q, ci float64) (estimate, bool) {
 	return estimate{score: clamp(mean + probit(q)*sd), err: normalError(sd, m.N, q, ci)}, true
 }
 
+// how far the straight line inside a bucket could misplace a score there:
+// the players it could be off by, in points at the bucket's own density
+func placementError(dist []float64, score float64) float64 {
+	b := min(int(max(score, 0))/krillionapi.BUCKET_WIDTH, len(dist)-1)
+	if b < 0 || dist[b] <= 0 {
+		return 0
+	}
+	return krillionapi.Misplaced(dist, score) / dist[b] * krillionapi.BUCKET_WIDTH
+}
+
 // everyone's top-p score from the summed histograms; ok=false without one.
-// the spread for the interval comes from the buckets' midpoints
+// the spread for the interval comes from the buckets' midpoints, plus the
+// placement inside the bucket the score lands in
 func globalEstimate(all krillionapi.Stats, q, ci float64) (estimate, bool) {
 	score, ok := krillionapi.Quantile(all.Dist, q)
 	if !ok || all.Sample < 2 {
@@ -86,7 +102,8 @@ func globalEstimate(all krillionapi.Stats, q, ci float64) (estimate, bool) {
 		sq += count * d * d
 	}
 	sd := math.Sqrt(sq / total)
-	return estimate{score: clamp(score), err: normalError(sd, int64(all.Sample), q, ci)}, true
+	err := normalError(sd, int64(all.Sample), q, ci) + placementError(all.Dist, score)
+	return estimate{score: clamp(score), err: err}, true
 }
 
 // "412 ± 9"
@@ -100,7 +117,7 @@ func percent(p float64) string {
 }
 
 // the embed: one line per side, then what the ± means
-func embed(guildName string, guild, global *estimate, beat, ci float64) *discordgo.MessageEmbed {
+func embed(guildName string, guild, global, today *estimate, beat, ci float64) *discordgo.MessageEmbed {
 	line := func(name string, e *estimate, none string) string {
 		if e == nil {
 			return fmt.Sprintf("**%s**: *%s*", name, none)
@@ -108,8 +125,9 @@ func embed(guildName string, guild, global *estimate, beat, ci float64) *discord
 		return fmt.Sprintf("**%s**: %s", name, e)
 	}
 	lines := []string{
-		line(guildName, guild, "not enough games yet"),
+		line("Global (Today)", today, "krillion has no histogram for today yet"),
 		line("Global", global, "no krillion histograms saved yet"),
+		line(guildName, guild, "not enough games yet"),
 		fmt.Sprintf("-# %s%% confidence interval", percent(ci)),
 	}
 	return &discordgo.MessageEmbed{
@@ -147,6 +165,18 @@ func reply(s *discordgo.Session, i *discordgo.InteractionCreate, data *discordgo
 	})
 }
 
+// today's top-p score from krillion's live histogram; nil if it won't say
+func todayEstimate(q, ci float64) *estimate {
+	live, err := krillionapi.Complete(krillion.DateOf(krillion.Today()), krillionapi.MIDDLE_SCORE)
+	if err != nil {
+		return nil
+	}
+	if e, ok := globalEstimate(live, q, ci); ok {
+		return &e
+	}
+	return nil
+}
+
 var zero = 0.0
 
 func Register(bcp *types.BotCommandPackage) {
@@ -179,6 +209,12 @@ func Register(bcp *types.BotCommandPackage) {
 					Flags:   discordgo.MessageFlagsEphemeral,
 				})
 			}
+			// today's histogram is an api call, which can outlast discord's 3s window
+			if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+			}); err != nil {
+				return err
+			}
 			q := beat / 100 // the share of games under the score
 			m, err := bcp.Scores.Moments(i.GuildID)
 			if err != nil {
@@ -193,9 +229,9 @@ func Register(bcp *types.BotCommandPackage) {
 					global = &e
 				}
 			}
-			return reply(s, i, &discordgo.InteractionResponseData{
-				Embeds: []*discordgo.MessageEmbed{embed(guildName(s, i.GuildID), guild, global, beat, ci)},
-			})
+			embeds := []*discordgo.MessageEmbed{embed(guildName(s, i.GuildID), guild, global, todayEstimate(q, ci/100), beat, ci)}
+			_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &embeds})
+			return err
 		},
 	}
 }

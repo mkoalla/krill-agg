@@ -11,7 +11,6 @@ import (
 	"krill-agg/root/managers/distributions"
 	"krill-agg/root/managers/scores"
 	"krill-agg/root/types"
-	"math"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -42,9 +41,9 @@ func commas(n int) string {
 	return out.String()
 }
 
-// "`~53%` - <@uid>", floored so nobody is rounded up past where they are
-func percentileLine(uid string, percent float64) string {
-	return fmt.Sprintf("`~%02d%%` - <@%s>", int(math.Floor(percent)), uid)
+// "`53.41%` - <@uid>", floored so nobody is rounded up past where they are
+func percentileLine(uid, percent string) string {
+	return fmt.Sprintf("`%s%%` - <@%s>", percent, uid)
 }
 
 const NO_DIST = "Krillion has no score distribution for this day."
@@ -64,7 +63,7 @@ func Percentiles(day int, stats krillionapi.Stats, entries []scores.Entry) strin
 		lines = append(lines, "")
 	}
 	for _, e := range entries {
-		lines = append(lines, percentileLine(e.UserID, stats.Percentile(float64(e.Score.Score))))
+		lines = append(lines, percentileLine(e.UserID, stats.PercentileText(float64(e.Score.Score))))
 	}
 	return strings.Join(lines, "\n")
 }

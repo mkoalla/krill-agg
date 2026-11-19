@@ -313,7 +313,7 @@ func attachTrend(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordg
 		return s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &embeds, Files: files, AllowedMentions: noPings})
 	}
 	fail := func(reason error) error {
-		_, err := send(imageEmbed("-# couldn't produce image: "+reason.Error(), ""), nil)
+		_, err := send(imageEmbed(daily.FailNote(reason), ""), nil)
 		return errors.Join(fmt.Errorf("trend image: %v", reason), err)
 	}
 
@@ -356,7 +356,11 @@ func attachTrend(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordg
 	name := filepath.Base(path)
 	final, err := send(imageEmbed("", "attachment://"+name), []*discordgo.File{{Name: name, ContentType: "image/webp", Reader: f}})
 	if err != nil {
-		return fail(err)
+		landed, ok := daily.Landed(func() (*discordgo.Message, error) { return s.InteractionResponse(i.Interaction) }, name)
+		if !ok {
+			return fail(err)
+		}
+		final = landed
 	}
 	url := daily.PostedURL(final)
 	if url == "" {

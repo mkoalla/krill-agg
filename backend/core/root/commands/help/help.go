@@ -113,7 +113,7 @@ func homeBody() string {
 	for j, l := range layout {
 		fmt.Fprintf(&b, "\n**%d. %s** - %s", j+2, l.name, l.blurb)
 	}
-	fmt.Fprintf(&b, "\n\nArguments read as `%s`.", usageHint)
+	fmt.Fprintf(&b, "\n\nArguments read as `%s`. A `[day]` is a Krillion #, or 0 for today and -n for n days ago.", usageHint)
 	return b.String()
 }
 

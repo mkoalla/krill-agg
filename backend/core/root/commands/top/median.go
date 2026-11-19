@@ -124,7 +124,8 @@ func buildSpan(entries []scores.Entry, dist func(day int) (krillionapi.Stats, bo
 			total += count
 		}
 		// the same estimate as a day's percentiles, over the whole span
-		better := krillionapi.Stats{Sample: int(math.Round(total)), Dist: summed}.Percentile(m)
+		all := krillionapi.Stats{Sample: int(math.Round(total)), Dist: summed}
+		better := all.Percentile(m)
 		span.better = &better
 	}
 
@@ -135,13 +136,17 @@ func buildSpan(entries []scores.Entry, dist func(day int) (krillionapi.Stats, bo
 	return span, true
 }
 
+// the card's look; bump to draw every cached /topg card again (2: two-decimal percentile)
+const MEDIAN_FORMAT = 2
+
 // a short digest of everything the card shows (but the guild's name), so a
 // dropped score or a histogram saved late makes a new card, not a stale one
 func (span medianSpan) digest() string {
 	raw, _ := json.Marshal(struct {
 		G, W    dailygen.MedianSeries
 		Players int
-	}{span.guild, span.global, span.players})
+		Format  int // bumped when the drawing changes, so older cards are drawn again
+	}{span.guild, span.global, span.players, MEDIAN_FORMAT})
 	h := fnv.New32a()
 	h.Write(raw) //nolint // never fails
 	return fmt.Sprintf("%08x", h.Sum32())

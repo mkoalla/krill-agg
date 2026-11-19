@@ -56,7 +56,7 @@ func attachCard(s *discordgo.Session, i *discordgo.InteractionCreate, head *disc
 		return s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &embeds, Files: files, AllowedMentions: noPings})
 	}
 	fail := func(reason error) error {
-		_, err := send(imageEmbed("-# couldn't produce image: "+reason.Error(), ""), nil)
+		_, err := send(imageEmbed(daily.FailNote(reason), ""), nil)
 		return errors.Join(fmt.Errorf("%s: %v", what, reason), err)
 	}
 
@@ -97,7 +97,11 @@ func attachCard(s *discordgo.Session, i *discordgo.InteractionCreate, head *disc
 	base := filepath.Base(path)
 	final, err := send(imageEmbed("", "attachment://"+base), []*discordgo.File{{Name: base, ContentType: "image/webp", Reader: f}})
 	if err != nil {
-		return fail(err)
+		landed, ok := daily.Landed(func() (*discordgo.Message, error) { return s.InteractionResponse(i.Interaction) }, base)
+		if !ok {
+			return fail(err)
+		}
+		final = landed
 	}
 	// head is embed 0, the card 1
 	var url string

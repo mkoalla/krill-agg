@@ -5,6 +5,7 @@ package drop
 
 import (
 	"fmt"
+	"krill-agg/root/krillion"
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/managers/confirm"
 	"krill-agg/root/types"
@@ -112,8 +113,19 @@ func drop(bcp *types.BotCommandPackage, guild string, w whose, day int, shown st
 	return fmt.Sprintf("Dropped %s score for day %d.\n- %s", w.their(), day, shown), err
 }
 
-// /mg-drop's day for every day
-const ALL_DAYS = -1
+// the day option, resolved (krillion.Resolve); 0 when it's left out, which
+// means every day. ok=false for a day before krillion #1
+func dayOption(i *discordgo.InteractionCreate) (day int, ok bool) {
+	for _, opt := range i.ApplicationCommandData().Options {
+		if opt.Name == "day" {
+			day = krillion.Resolve(int(opt.IntValue()))
+			return day, day >= 1
+		}
+	}
+	return 0, true
+}
+
+const BEFORE_DAY_ONE = "That's before Krillion #1."
 
 func Register(bcp *types.BotCommandPackage) {
 	(*bcp.Handles)["drop"] = CommandInfo{
@@ -123,17 +135,14 @@ func Register(bcp *types.BotCommandPackage) {
 			Options: []*discordgo.ApplicationCommandOption{{
 				Type:        discordgo.ApplicationCommandOptionInteger,
 				Name:        "day",
-				Description: "krillion # to drop (default: all of them)",
-				MinValue:    &firstDay,
+				Description: krillion.DAY_OPTION + " (default: all of them)",
 			}},
 		},
 		Metadata: types.CommandMetadata{MinTrustLevel: authorize.DEFAULT},
 		Callback: func(s *discordgo.Session, i *discordgo.InteractionCreate) error {
-			day := 0
-			for _, opt := range i.ApplicationCommandData().Options {
-				if opt.Name == "day" {
-					day = int(opt.IntValue())
-				}
+			day, ok := dayOption(i)
+			if !ok {
+				return confirm.Reply(s, i, BEFORE_DAY_ONE)
 			}
 			return start(bcp, s, i, i.Member.User.ID, day)
 		},
@@ -150,36 +159,22 @@ func Register(bcp *types.BotCommandPackage) {
 			}, {
 				Type:        discordgo.ApplicationCommandOptionInteger,
 				Name:        "day",
-				Description: "krillion # to drop, or -1 for all of them",
-				Required:    true,
-				MinValue:    &allDays,
+				Description: krillion.DAY_OPTION + " (default: all of them)",
 			}},
 		},
 		Metadata: types.CommandMetadata{MinTrustLevel: authorize.MANAGE},
 		Callback: func(s *discordgo.Session, i *discordgo.InteractionCreate) error {
 			var user string
-			day := 0
 			for _, opt := range i.ApplicationCommandData().Options {
-				switch opt.Name {
-				case "user":
+				if opt.Name == "user" {
 					user, _ = opt.Value.(string) // raw: UserValue needs a session lookup
-				case "day":
-					day = int(opt.IntValue())
 				}
 			}
-			switch day {
-			case 0:
-				return confirm.Reply(s, i, "Day must be a krillion # (1 or more), or -1 for all of them.")
-			case ALL_DAYS:
-				day = 0
+			day, ok := dayOption(i)
+			if !ok {
+				return confirm.Reply(s, i, BEFORE_DAY_ONE)
 			}
 			return start(bcp, s, i, user, day)
 		},
 	}
 }
-
-// krillion #1 is the first puzzle; /mg-drop also takes ALL_DAYS
-var (
-	firstDay = 1.0
-	allDays  = float64(ALL_DAYS)
-)

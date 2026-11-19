@@ -103,7 +103,7 @@ func Register(bcp *types.BotCommandPackage) {
 				{
 					Type:        discordgo.ApplicationCommandOptionInteger,
 					Name:        "day",
-					Description: "krillion # (default: today)",
+					Description: krillion.DAY_OPTION + " (default: today)",
 				},
 			},
 		},
@@ -116,7 +116,7 @@ func Register(bcp *types.BotCommandPackage) {
 			}
 			day := krillion.Today()
 			if opt, ok := optionMap["day"]; ok {
-				day = int(opt.IntValue())
+				day = krillion.Resolve(int(opt.IntValue()))
 			}
 			entries, err := bcp.Scores.Day(i.GuildID, day)
 			if err != nil {

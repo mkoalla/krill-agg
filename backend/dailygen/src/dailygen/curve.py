@@ -100,8 +100,5 @@ def percentile(dist: list[float], score: float, sample: float | None = None) -> 
 
 
 def format_percentile(p: float) -> str:
-    """The site shows two decimals from 99.5 up and a whole number otherwise;
-    estimates are floored so nobody is rounded past where they are."""
-    if p >= 99.5:
-        return f"{p:.2f}"
-    return str(floor(p))
+    """Two decimals, floored so nobody is rounded past where they are."""
+    return f"{floor(p * 100 + 1e-9) / 100:.2f}"
