@@ -104,6 +104,20 @@ x%" on the left and the global `dives` "TOTAL DIVES" on the right. The bot names
 each card by its period, its days and a digest of what it shows. It answers
 like `/render`.
 
+`POST /compare` with `{"guild", "name", "images", "first", "last", "window"?,
+"left", "right", "deadline"?}` draws `/compare`'s card over days
+`first..last` and writes `<data-dir>/<guild>/compare/<name>`, overwriting. The
+left side is yellow and the right cyan, laid out like `/median`'s (both are
+`versus.py`): each side's daily values faint, their moving averages over them,
+each ending in its avatar. A side is `{"name", "points": [{"day", "value"}],
+"ma"?, "average"?, "dives"?, "avatar"?, "guild"?}`: a player's games, or with
+`"guild": true` the guild's daily averages (its icon then a rounded square).
+`avatar` names its image in `<guild>/compare/<images>/`. The big number is the
+left side's average, with the difference to the right's beside it, and each
+side's dives are under the legend. A side may have no points, but not both.
+The bot names each card by the pair, the period and its last day, so it's
+drawn at most once a day. It answers like `/render`.
+
 In compose this runs as `dailygen` on the `krill-agg` network, sharing the
 `data/` mount with the bot, which reaches it at `http://dailygen:40404`.
 `make dev` starts this server on localhost alongside the bot (stopping it when

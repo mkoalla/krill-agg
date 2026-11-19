@@ -28,6 +28,9 @@ Shows someone's rank on every leaderboard, with a card charting their scores ove
 /mg-cleartopu || [user]
 Deletes cached /topu cards (someone's, or everyone's in this server after confirming) so they're drawn fresh.
 
+/compare || [user1] [user2] [since]
+Puts two players' ranks and scores side by side; with one, you against them, with none, you against this server.
+
 /quantile || [p] [ci]
 Shows what score beats p% of games here and globally, all-time, with a ci% confidence interval (default 90).
 
@@ -36,6 +39,9 @@ This server versus the global median.
 
 /mg-cleartopg
 Deletes this server's cached /topg cards so they're drawn fresh.
+
+/mg-clearcompare || [user]
+Deletes cached /compare cards (every pair someone's in, or every pair in this server after confirming) so they're drawn fresh.
 
 /mg-refetchtop
 Rebuilds this server's leaderboards now, then shows them.

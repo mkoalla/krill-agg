@@ -139,6 +139,41 @@ func RenderMedian(ctx context.Context, req MedianRequest) (path string, err erro
 	return post(ctx, "/median", req)
 }
 
+// one side of /compare: a player's games (or the guild's daily averages),
+// their moving average, and the average of every game in the span
+type CompareSide struct {
+	Name    string         `json:"name"`
+	Points  []TrendAverage `json:"points"`
+	MA      []TrendAverage `json:"ma"`
+	Average *float64       `json:"average"` // nil with no games
+	Dives   int            `json:"dives"`
+	Avatar  string         `json:"avatar,omitempty"` // a file in the request's Images
+	Guild   bool           `json:"guild"`            // the guild's side: its icon is a rounded square
+}
+
+// /compare's card over days First..Last: Left (yellow) against Right (cyan).
+// written to <guild>/compare/<Name> under DIR, overwriting; avatars are read
+// from <guild>/compare/<Images>/
+type CompareRequest struct {
+	Guild    string      `json:"guild"`
+	Name     string      `json:"name"` // a bare *.webp
+	Images   string      `json:"images"`
+	First    int         `json:"first"`
+	Last     int         `json:"last"`
+	Window   string      `json:"window"`
+	Left     CompareSide `json:"left"`
+	Right    CompareSide `json:"right"`
+	Deadline int64       `json:"deadline,omitempty"`
+}
+
+// renders a /compare card; path is relative to DIR
+func RenderCompare(ctx context.Context, req CompareRequest) (path string, err error) {
+	if deadline, ok := ctx.Deadline(); ok {
+		req.Deadline = deadline.UnixMilli()
+	}
+	return post(ctx, "/compare", req)
+}
+
 // sends one render request and reads back where the card landed
 func post(ctx context.Context, endpoint string, req any) (path string, err error) {
 	payload, err := json.Marshal(req)

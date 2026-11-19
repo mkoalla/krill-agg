@@ -198,37 +198,6 @@ func medianImage(s *discordgo.Session, path, guild, title string, span medianSpa
 	return err
 }
 
-// draws the card at path unless it's already on disk, under the guild's one
-// claim (any period). onDraw goes first and returns a link to the reply that
-// will carry it; if the guild's card is already being drawn, nothing is and
-// the error is a *drawingError. the period's older cards and links go
-func cachedMedian(s *discordgo.Session, path, guild, title, period string, span medianSpan, onDraw func() (string, error)) error {
-	if _, err := os.Stat(path); err == nil {
-		return nil
-	}
-	publish, done, err := claimDraw(guild, SERVER)
-	if err != nil {
-		return err
-	}
-	defer done()
-	link, err := onDraw()
-	if err != nil {
-		return err
-	}
-	publish(link)
-	if err := medianImage(s, path, guild, title, span); err != nil {
-		return err
-	}
-	keep := strings.TrimSuffix(path, ".webp")
-	old, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "topg_"+period+"_*"))
-	for _, f := range old {
-		if strings.TrimSuffix(f, filepath.Ext(f)) != keep {
-			os.Remove(f) //nolint // a leftover is only disk space
-		}
-	}
-	return nil
-}
-
 // removes a guild's cached /topg cards and links, so the next /topg draws
 // fresh. busy (nothing removed) while one is being drawn
 func clearMedians(bcp *types.BotCommandPackage, guild string) (cards int, busy bool, err error) {
@@ -270,10 +239,7 @@ func medianSummary(span medianSpan, name string) string {
 	return strings.Join(lines, "\n")
 }
 
-// /topg: the summary right away, then the card under it (a placeholder while
-// it draws), or why there isn't one. a card already posted for the same span
-// is linked again if discord still has it, else one already drawn is
-// uploaded again, with no placeholder either way
+// /topg: the summary right away, then the card under it (see attachCard)
 func openMedians(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordgo.InteractionCreate, period string) error {
 	guild := i.GuildID
 	name := guildName(s, guild)
@@ -293,76 +259,18 @@ func openMedians(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordg
 	if ok {
 		summary.Description = medianSummary(span, name)
 	}
-	noPings := &discordgo.MessageAllowedMentions{}
 	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Embeds: []*discordgo.MessageEmbed{summary}, AllowedMentions: noPings},
+		Data: &discordgo.InteractionResponseData{Embeds: []*discordgo.MessageEmbed{summary}, AllowedMentions: &discordgo.MessageAllowedMentions{}},
 	}); err != nil || !ok {
 		return err
 	}
 
-	send := func(image *discordgo.MessageEmbed, files []*discordgo.File) (*discordgo.Message, error) {
-		embeds := []*discordgo.MessageEmbed{summary, image}
-		return s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &embeds, Files: files, AllowedMentions: noPings})
-	}
-	fail := func(reason error) error {
-		_, err := send(imageEmbed("-# couldn't produce image: "+reason.Error(), ""), nil)
-		return errors.Join(fmt.Errorf("median image: %v", reason), err)
-	}
-
 	path := medianPath(bcp, guild, period, span)
-	if url, at, ok := daily.ReadLink(trendLink(path)); ok {
-		_, err := send(imageEmbed(fmt.Sprintf("-# Image reused from <t:%d:R>", at.Unix()), url), nil)
-		return err
-	}
-	placed := false // the placeholder went out, so a failure has a message to edit
-	err = cachedMedian(s, path, guild, name, period, span, func() (string, error) {
-		msg, err := send(imageEmbed("-# generating image...", ""), nil)
-		if err != nil {
-			return "", err
-		}
-		placed = true
-		return daily.JumpLink(guild, msg), nil
+	stale := filepath.Join(filepath.Dir(path), "topg_"+period+"_*")
+	return attachCard(s, i, summary, path, SERVER, stale, "median image", func() error {
+		return medianImage(s, path, guild, name, span)
 	})
-	var drawing *drawingError
-	if errors.As(err, &drawing) {
-		note := "-# Already generating"
-		if drawing.link != "" {
-			note += ": " + drawing.link
-		}
-		_, err := send(imageEmbed(note, ""), nil)
-		return err
-	}
-	if err != nil {
-		if !placed {
-			return err
-		}
-		return fail(err)
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return fail(err)
-	}
-	defer f.Close() //nolint
-	base := filepath.Base(path)
-	final, err := send(imageEmbed("", "attachment://"+base), []*discordgo.File{{Name: base, ContentType: "image/webp", Reader: f}})
-	if err != nil {
-		return fail(err)
-	}
-	// the summary is embed 0, the card 1
-	var url string
-	if len(final.Embeds) > 1 && final.Embeds[1].Image != nil && strings.HasPrefix(final.Embeds[1].Image.URL, "http") {
-		url = final.Embeds[1].Image.URL
-	} else if len(final.Attachments) > 0 {
-		url = final.Attachments[0].URL
-	}
-	if url == "" {
-		return errors.New("median image: posted, but discord returned no url to reuse")
-	}
-	if err := daily.WriteLink(trendLink(path), url); err != nil {
-		return fmt.Errorf("median image: saving its link: %v", err)
-	}
-	return nil
 }
 
 func registerMedians(bcp *types.BotCommandPackage) {

@@ -37,6 +37,14 @@ is {"points": [{"day", "value"}], "ma"?: [{"day", "value"}], "median"?,
 guild_series needs points. "percentile" is the share of everyone's games under
 the guild's median ("BETTER THAN" line). "icon" names the guild's icon in
 <guild>/server/<images>/, riding the end of the yellow line.
+POST /compare {"guild", "name", "images", "first", "last", "window"?,
+               "left", "right", "deadline"?}
+  -> 200 {"path": "<guild>/compare/<name>"}, overwriting
+/compare's card over days first..last: the left side (yellow) against the
+right (cyan). Each side is {"name", "points": [{"day", "value"}], "ma"?,
+"average"?, "dives"?, "avatar"?, "guild"?}: a player's games, or ("guild":
+true) the guild's daily averages. "avatar" names its image in
+<guild>/compare/<images>/; a side needs no points, but one of them must.
 GET /health -> 200
 """
 
@@ -50,7 +58,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import median, trend
+from . import compare, median, trend
 from .card import CardData, render_webp
 from .players import Player
 
@@ -204,11 +212,62 @@ def build_median(body: dict, data_dir: Path) -> tuple[median.MedianData, Path]:
     return data, server_dir / name
 
 
+def _side(raw, images: Path) -> compare.Side:
+    """one /compare side: {"name", "points", "ma"?, "average"?, "dives"?, "avatar"?, "guild"?}"""
+    if not isinstance(raw, dict):
+        raise BadRequest("a side must be an object")
+    avatar = str(raw.get("avatar") or "")
+    if avatar and not FILE_NAME.match(avatar):
+        raise BadRequest("avatar must be a file name")
+    return compare.Side(
+        name=str(raw.get("name", ""))[:100],
+        points=sorted((int(p["day"]), float(p["value"])) for p in raw.get("points") or []),
+        ma=sorted((int(p["day"]), float(p["value"])) for p in raw.get("ma") or []),
+        average=None if raw.get("average") is None else float(raw["average"]),
+        dives=int(raw.get("dives") or 0),
+        avatar=str(images / avatar) if avatar else None,
+        guild=bool(raw.get("guild")),
+    )
+
+
+def build_compare(body: dict, data_dir: Path) -> tuple[compare.CompareData, Path]:
+    """/compare request -> its card and where to write it. raises BadRequest on bad input"""
+    guild = str(body.get("guild", ""))
+    if not GUILD_ID.match(guild):  # keeps paths inside data_dir
+        raise BadRequest("guild must be a discord id")
+    images_name = str(body.get("images", ""))
+    if not FILE_NAME.match(images_name):
+        raise BadRequest("images must be a folder name")
+    name = str(body.get("name", ""))
+    if not FILE_NAME.match(name) or not name.endswith(".webp"):
+        raise BadRequest("name must be a .webp file name")
+    out_dir = data_dir / guild / "compare"
+    images = out_dir / images_name
+    try:
+        first, last = int(body["first"]), int(body["last"])
+        left, right = _side(body.get("left"), images), _side(body.get("right"), images)
+    except (KeyError, TypeError, ValueError) as err:
+        raise BadRequest(f"bad field: {err}") from None
+    if first < 1 or last < first:
+        raise BadRequest("first and last must be days, first..last")
+    if not (left.points or right.points):
+        raise BadRequest("neither side has games to draw")
+    data = compare.CompareData(
+        first=first,
+        last=last,
+        window=str(body.get("window", ""))[:20],
+        left=left,
+        right=right,
+    )
+    return data, out_dir / name
+
+
 # each card's endpoint: how to read its request and draw it
 ROUTES = {
     "/render": (build, render_webp),
     "/trend": (build_trend, trend.render_webp),
     "/median": (build_median, median.render_webp),
+    "/compare": (build_compare, compare.render_webp),
 }
 
 

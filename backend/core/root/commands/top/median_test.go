@@ -156,22 +156,22 @@ func medianCard(t *testing.T, bcp *types.BotCommandPackage, span medianSpan) str
 }
 
 // a card already on disk is reused: nothing is drawn
-func TestCachedMedianReuses(t *testing.T) {
+func TestCachedCardReuses(t *testing.T) {
 	bcp := &types.BotCommandPackage{DataDir: t.TempDir()}
 	none := func(int) (krillionapi.Stats, bool) { return krillionapi.Stats{}, false }
 	span, _ := buildSpan([]scores.Entry{entry("a", 100, 300)}, none, 1, 100)
 	path := medianCard(t, bcp, span)
-	err := cachedMedian(nil, path, "1", "Krill Club", leaderboard.MONTH, span, func() (string, error) {
+	err := cachedCard(path, "1", SERVER, "", func() (string, error) {
 		t.Error("drew a card already on disk")
 		return "", nil
-	})
+	}, nil)
 	if err != nil {
-		t.Errorf("cachedMedian: %v", err)
+		t.Errorf("cachedCard: %v", err)
 	}
 }
 
 // a card missing from disk while the guild's draw is underway isn't drawn
-func TestCachedMedianTurnsAwayADuplicate(t *testing.T) {
+func TestCachedCardTurnsAwayADuplicate(t *testing.T) {
 	bcp := &types.BotCommandPackage{DataDir: t.TempDir()}
 	none := func(int) (krillionapi.Stats, bool) { return krillionapi.Stats{}, false }
 	span, _ := buildSpan([]scores.Entry{entry("a", 100, 300)}, none, 1, 100)
@@ -180,13 +180,13 @@ func TestCachedMedianTurnsAwayADuplicate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer done()
-	err = cachedMedian(nil, medianPath(bcp, "1", leaderboard.MONTH, span), "1", "Krill Club", leaderboard.MONTH, span, func() (string, error) {
+	err = cachedCard(medianPath(bcp, "1", leaderboard.MONTH, span), "1", SERVER, "", func() (string, error) {
 		t.Error("drew while another draw was underway")
 		return "", nil
-	})
+	}, nil)
 	var drawing *drawingError
 	if !errors.As(err, &drawing) {
-		t.Errorf("cachedMedian = %v, want a *drawingError", err)
+		t.Errorf("cachedCard = %v, want a *drawingError", err)
 	}
 }
 

@@ -264,6 +264,7 @@ func open(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordgo.Inter
 func Register(bcp *types.BotCommandPackage) {
 	registerBlacklist(bcp)
 	registerMedians(bcp)
+	registerCompare(bcp)
 	choices := []*discordgo.ApplicationCommandOptionChoice{{Name: "all", Value: ALL}}
 	for _, board := range leaderboard.BOARDS {
 		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: board, Value: board})
