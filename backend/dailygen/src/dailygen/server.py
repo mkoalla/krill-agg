@@ -26,6 +26,17 @@ One player's games over a period (/topu): "points" is [{"day", "score"}] per
 game, "ma" [{"day", "value"}] the moving average the bot worked out over a
 "window" (e.g. "1-WEEK"), "rank" their place on the guild's best-score board.
 The avatar is <guild>/users/<user>/<images>/0.png; errors are as /render's.
+POST /median {"guild", "name", "title", "images", "first", "last",
+              "guild_series", "global_series"?, "window"?, "percentile"?,
+              "icon"?, "deadline"?}
+  -> 200 {"path": "<guild>/server/<name>"}, overwriting
+/topg's card over days first..last: the guild's daily medians (yellow) against
+every krillion player's (cyan), faint under their moving averages. Each series
+is {"points": [{"day", "value"}], "ma"?: [{"day", "value"}], "median"?,
+"dives"?}; "median" is over every game in the span, not of the daily ones.
+guild_series needs points. "percentile" is the share of everyone's games under
+the guild's median ("BETTER THAN" line). "icon" names the guild's icon in
+<guild>/server/<images>/, riding the end of the yellow line.
 GET /health -> 200
 """
 
@@ -39,7 +50,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import trend
+from . import median, trend
 from .card import CardData, render_webp
 from .players import Player
 
@@ -140,10 +151,64 @@ def build_trend(body: dict, data_dir: Path) -> tuple[trend.TrendData, Path]:
     return data, user_dir / name
 
 
+def _series(raw) -> median.Series:
+    """one /median series: {"points", "ma"?, "median"?, "dives"?}"""
+    if raw is None:
+        return median.Series()
+    if not isinstance(raw, dict):
+        raise BadRequest("a series must be an object")
+    return median.Series(
+        points=sorted((int(p["day"]), float(p["value"])) for p in raw.get("points") or []),
+        ma=sorted((int(p["day"]), float(p["value"])) for p in raw.get("ma") or []),
+        median=None if raw.get("median") is None else float(raw["median"]),
+        dives=int(raw.get("dives") or 0),
+    )
+
+
+def build_median(body: dict, data_dir: Path) -> tuple[median.MedianData, Path]:
+    """/median request -> its card and where to write it. raises BadRequest on bad input"""
+    guild = str(body.get("guild", ""))
+    if not GUILD_ID.match(guild):  # keeps paths inside data_dir
+        raise BadRequest("guild must be a discord id")
+    images_name = str(body.get("images", ""))
+    if not FILE_NAME.match(images_name):
+        raise BadRequest("images must be a folder name")
+    name = str(body.get("name", ""))
+    if not FILE_NAME.match(name) or not name.endswith(".webp"):
+        raise BadRequest("name must be a .webp file name")
+    icon = str(body.get("icon") or "")
+    if icon and not FILE_NAME.match(icon):
+        raise BadRequest("icon must be a file name")
+    try:
+        first, last = int(body["first"]), int(body["last"])
+        guild_series = _series(body.get("guild_series"))
+        everyone = _series(body.get("global_series"))
+        percentile = None if body.get("percentile") is None else float(body["percentile"])
+    except (KeyError, TypeError, ValueError) as err:
+        raise BadRequest(f"bad field: {err}") from None
+    if first < 1 or last < first:
+        raise BadRequest("first and last must be days, first..last")
+    if not guild_series.points:
+        raise BadRequest("no guild medians to draw")
+    server_dir = data_dir / guild / "server"
+    data = median.MedianData(
+        title=str(body.get("title", "")),
+        first=first,
+        last=last,
+        window=str(body.get("window", ""))[:20],
+        guild=guild_series,
+        everyone=everyone,
+        percentile=percentile,
+        icon=str(server_dir / images_name / icon) if icon else None,
+    )
+    return data, server_dir / name
+
+
 # each card's endpoint: how to read its request and draw it
 ROUTES = {
     "/render": (build, render_webp),
     "/trend": (build_trend, trend.render_webp),
+    "/median": (build_median, median.render_webp),
 }
 
 

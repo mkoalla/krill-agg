@@ -5,6 +5,7 @@ score row and percentile line around it.
 """
 
 import io
+import struct
 from dataclasses import dataclass, field
 from html import escape
 from importlib.resources import files
@@ -110,6 +111,56 @@ def _baseline_for_top(top: float, size: float) -> float:
 
 def _width(text: str, size: float, spacing_em: float = 0) -> float:
     return len(text) * size * (ADVANCE_EM + spacing_em)
+
+
+def _font_codepoints(font: bytes) -> frozenset[int]:
+    """every codepoint the font draws (maps to a glyph other than .notdef),
+    read from its cmap's unicode subtables (formats 4 and 12)"""
+    def u16(at: int) -> int:
+        return struct.unpack_from(">H", font, at)[0]
+
+    def u32(at: int) -> int:
+        return struct.unpack_from(">I", font, at)[0]
+
+    cmap = next(
+        (u32(12 + 16 * i + 8) for i in range(u16(4)) if font[12 + 16 * i : 16 + 16 * i] == b"cmap"), None
+    )
+    if cmap is None:
+        return frozenset()
+    codes: set[int] = set()
+    for i in range(u16(cmap + 2)):
+        sub = cmap + u32(cmap + 4 + 8 * i + 4)
+        fmt = u16(sub)
+        if fmt == 4:
+            segs = u16(sub + 6) // 2
+            ends, starts = sub + 14, sub + 16 + 2 * segs
+            deltas, ranges = starts + 2 * segs, starts + 4 * segs
+            for s in range(segs):
+                start, end = u16(starts + 2 * s), u16(ends + 2 * s)
+                delta, offset = u16(deltas + 2 * s), u16(ranges + 2 * s)
+                for c in range(start, min(end, 0xFFFE) + 1):
+                    if offset == 0:
+                        glyph = (c + delta) & 0xFFFF
+                    else:
+                        glyph = u16(ranges + 2 * s + offset + 2 * (c - start))
+                        glyph = (glyph + delta) & 0xFFFF if glyph else 0
+                    if glyph:
+                        codes.add(c)
+        elif fmt == 12:
+            for g in range(u32(sub + 12)):
+                start, end, first = u32(sub + 16 + 12 * g), u32(sub + 20 + 12 * g), u32(sub + 24 + 12 * g)
+                codes.update(c for c in range(start, end + 1) if first + c - start)
+    return frozenset(codes)
+
+
+DRAWABLE = _font_codepoints(FONT.read_bytes())
+
+
+def drawable(text: str) -> str:
+    """text without the characters VT323 has no glyph for (emoji, most
+    non-latin scripts), which would otherwise draw as empty gaps. whitespace
+    left behind is collapsed and stripped"""
+    return " ".join("".join(c for c in text if c.isspace() or ord(c) in DRAWABLE).split())
 
 
 def _fit(text: str, size: float, max_width: float) -> str:
@@ -347,7 +398,7 @@ def render_svg(data: CardData) -> str:
     depth = "" if data.mean is None else f"-{10 * round(data.mean):,}m"
     dive = f"DIVE #{data.day} COMPLETE"
     dive_w = _width(dive, LABEL_SIZE, LABEL_SPACING_EM)
-    title = _fit(f"{data.title}", TITLE_SIZE, CARD_W - 2 * PAD - dive_w - SCORE_GAP)
+    title = _fit(drawable(data.title), TITLE_SIZE, CARD_W - 2 * PAD - dive_w - SCORE_GAP)
     # the dash stands in for a 3-digit score, so the labels keep their place
     beside_score = PAD + _width(score_text if data.mean is not None else "000", SCORE_SIZE) + SCORE_GAP
     label_spacing = _spacing(LABEL_SIZE, LABEL_SPACING_EM)

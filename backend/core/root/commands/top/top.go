@@ -263,6 +263,7 @@ func open(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordgo.Inter
 // map is already reference-like but just for continuity
 func Register(bcp *types.BotCommandPackage) {
 	registerBlacklist(bcp)
+	registerMedians(bcp)
 	choices := []*discordgo.ApplicationCommandOptionChoice{{Name: "all", Value: ALL}}
 	for _, board := range leaderboard.BOARDS {
 		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: board, Value: board})

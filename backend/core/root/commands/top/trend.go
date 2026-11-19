@@ -66,15 +66,24 @@ func history(entries []scores.Entry, user string) []scores.PlayerScore {
 // as of each game: the mean of the games in the window days ending that day.
 // days are calendar days, so days off just leave fewer games to average
 func movingAverage(games []scores.PlayerScore, window int) []dailygen.TrendAverage {
-	out := make([]dailygen.TrendAverage, len(games))
-	from, sum := 0, 0
+	points := make([]dailygen.TrendAverage, len(games))
 	for j, g := range games {
-		sum += g.Score
-		for games[from].Day <= g.Day-window {
-			sum -= games[from].Score
+		points[j] = dailygen.TrendAverage{Day: g.Day, Value: float64(g.Score)}
+	}
+	return seriesAverage(points, window)
+}
+
+// movingAverage over any values by day (days ascending)
+func seriesAverage(points []dailygen.TrendAverage, window int) []dailygen.TrendAverage {
+	out := make([]dailygen.TrendAverage, len(points))
+	from, sum := 0, 0.0
+	for j, p := range points {
+		sum += p.Value
+		for points[from].Day <= p.Day-window {
+			sum -= points[from].Value
 			from++
 		}
-		out[j] = dailygen.TrendAverage{Day: g.Day, Value: float64(sum) / float64(j-from+1)}
+		out[j] = dailygen.TrendAverage{Day: p.Day, Value: sum / float64(j-from+1)}
 	}
 	return out
 }

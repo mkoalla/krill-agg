@@ -101,6 +101,44 @@ func RenderTrend(ctx context.Context, req TrendRequest) (path string, err error)
 	return post(ctx, "/trend", req)
 }
 
+// one side of /topg: a median per day (days without one left off), their
+// moving average, and the median of every game in the span
+type MedianSeries struct {
+	Points []TrendAverage `json:"points"`
+	MA     []TrendAverage `json:"ma"`
+	Median *float64       `json:"median"` // nil with no games
+	Dives  int            `json:"dives"`
+}
+
+// /topg's card over days First..Last: the guild (yellow) against every
+// krillion player (cyan). written to <guild>/server/<Name> under DIR,
+// overwriting. Icon names the guild's icon in <guild>/server/<Images>/; empty
+// draws none
+type MedianRequest struct {
+	Guild   string       `json:"guild"`
+	Name    string       `json:"name"` // a bare *.webp
+	Title   string       `json:"title"`
+	Images  string       `json:"images"`
+	Icon    string       `json:"icon,omitempty"`
+	First   int          `json:"first"`
+	Last    int          `json:"last"`
+	GuildS  MedianSeries `json:"guild_series"` // needs points
+	GlobalS MedianSeries `json:"global_series"`
+	Window  string       `json:"window"`
+	// everyone's games under the guild's median, in percent; nil draws no
+	// "BETTER THAN" line
+	Percentile *float64 `json:"percentile"`
+	Deadline   int64    `json:"deadline,omitempty"`
+}
+
+// renders one /topg card; path is relative to DIR
+func RenderMedian(ctx context.Context, req MedianRequest) (path string, err error) {
+	if deadline, ok := ctx.Deadline(); ok {
+		req.Deadline = deadline.UnixMilli()
+	}
+	return post(ctx, "/median", req)
+}
+
 // sends one render request and reads back where the card landed
 func post(ctx context.Context, endpoint string, req any) (path string, err error) {
 	payload, err := json.Marshal(req)

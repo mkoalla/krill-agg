@@ -87,6 +87,23 @@ like `/render`. The avatar is `<guild>/users/<user>/<images>/0.png`. The bot
 works out the moving average (`ma`, over `window`, e.g. `"1-WEEK"`) and the
 player's best-score `rank`. Best and worst are taken from `points`.
 
+`POST /median` with `{"guild", "name", "title", "images", "first", "last",
+"guild_series", "global_series"?, "window"?, "percentile"?, "icon"?,
+"deadline"?}` draws `/topg`'s card over days `first..last` and writes
+`<data-dir>/<guild>/server/<name>` (a bare `.webp` name), overwriting. Global is
+cyan and the guild yellow: each day's medians faint, their moving averages over
+them. Each series is `{"points": [{"day", "value"}], "ma"?: [{"day", "value"}],
+"median"?, "dives"?}`, where `median` is over every game in the span rather
+than of the daily medians. `guild_series` needs points. The big number is the
+guild's median, with the global median's difference beside it. The global
+median is pinned from its height at the latest day down to the axis, with its
+score under it. `icon` names the guild's icon in `<guild>/server/<images>/` and
+rides the end of the yellow line (a yellow dot without one). Under the legend,
+`percentile` (everyone's games under the guild's median) draws "BETTER THAN
+x%" on the left and the global `dives` "TOTAL DIVES" on the right. The bot names
+each card by its period, its days and a digest of what it shows. It answers
+like `/render`.
+
 In compose this runs as `dailygen` on the `krill-agg` network, sharing the
 `data/` mount with the bot, which reaches it at `http://dailygen:40404`.
 `make dev` starts this server on localhost alongside the bot (stopping it when

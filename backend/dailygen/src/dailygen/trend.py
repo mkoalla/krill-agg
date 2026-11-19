@@ -35,6 +35,7 @@ from .card import (
     TITLE_SIZE,
     TITLE_TOP,
     _baseline_for_top,
+    drawable,
     _fit,
     _spacing,
     _width,
@@ -121,14 +122,9 @@ def _apart(a: float, b: float, wa: float, wb: float) -> tuple[float, float]:
     return (right, left) if flip else (left, right)
 
 
-def chart_svg(data: TrendData) -> str:
-    first, last = data.points[0][0], data.points[-1][0]
+def grid_svg(first: int, last: int) -> list[str]:
+    """the score hairlines and the day axis for days first..last"""
     x = day_xs(first, last)
-    bounds = (TOP, BASELINE)
-    pts = [(x(d), score_y(s)) for d, s in data.points]
-    best, worst = data.best(), data.worst()
-    bx, wx = x(best[0]), x(worst[0])
-
     parts = []
     # score grid: hairlines with their value just above, at the left edge
     for value in range(0, curve.MAX_DAY_SCORE + 1, 100):
@@ -147,7 +143,19 @@ def chart_svg(data: TrendData) -> str:
             f'<line x1="{tx:.3f}" y1="{BASELINE}" x2="{tx:.3f}" y2="{BASELINE + 3.5}" stroke="{DRIFT}" stroke-opacity="0.5"/>'
             f'<text x="{_on_chart(tx):.3f}" y="{DAY_ROW}" text-anchor="middle" font-size="9" fill="{DRIFT}" opacity="0.55">#{day}</text>'
         )
+    return parts
 
+
+def games_svg(x, points: list[tuple[int, float]], ma: list[tuple[int, float]]) -> list[str]:
+    """points (day, score) as the cyan line, filled up to the best, with a dot
+    each and best/worst pinned; ma as the yellow line. x maps a day to the chart"""
+    bounds = (TOP, BASELINE)
+    pts = [(x(d), score_y(s)) for d, s in points]
+    best = min(points, key=lambda p: (-p[1], p[0]))
+    worst = min(points, key=lambda p: (p[1], p[0]))
+    bx, wx = x(best[0]), x(worst[0])
+
+    parts = []
     # filled up to their best, like the daily card fills up to the average
     line = curve.bezier_path(pts, bounds)
     if line:
@@ -163,10 +171,10 @@ def chart_svg(data: TrendData) -> str:
         )
 
     # the moving average: just a line
-    ma = curve.bezier_path([(x(d), score_y(v)) for d, v in data.ma], bounds)
-    if ma:
+    ma_line = line_path(x, ma)
+    if ma_line:
         parts.append(
-            f'<path d="{ma}" fill="none" stroke="{YELLOW}" stroke-width="{MA_WIDTH}" stroke-opacity="0.9"/>'
+            f'<path d="{ma_line}" fill="none" stroke="{YELLOW}" stroke-width="{MA_WIDTH}" stroke-opacity="0.9"/>'
         )
 
     # a dot per game, shrinking when days crowd together
@@ -195,7 +203,17 @@ def chart_svg(data: TrendData) -> str:
             f'<text x="{lx:.3f}" y="{MARK_ROW}" text-anchor="middle" font-size="{MARK_SIZE}" '
             f'letter-spacing="{_spacing(MARK_SIZE, MARK_SPACING_EM)}" fill="{CYAN}">{label(game)}</text>'
         )
-    return "\n  ".join(parts)
+    return parts
+
+
+def line_path(x, points: list[tuple[int, float]]) -> str:
+    """(day, score) through the chart, kept inside it; "" under two points"""
+    return curve.bezier_path([(x(d), score_y(v)) for d, v in points], (TOP, BASELINE))
+
+
+def chart_svg(data: TrendData) -> str:
+    first, last = data.points[0][0], data.points[-1][0]
+    return "\n  ".join(grid_svg(first, last) + games_svg(day_xs(first, last), data.points, data.ma))
 
 
 def avatar_svg(data: TrendData, chart_top: float) -> str:
@@ -225,11 +243,11 @@ def render_svg(data: TrendData) -> str:
     dives = f"{len(data.points)} DIVE{'' if len(data.points) == 1 else 'S'} COMPLETED"
     label_spacing = _spacing(LABEL_SIZE, LABEL_SPACING_EM)
     dives_w = _width(dives, LABEL_SIZE, LABEL_SPACING_EM)
-    title = _fit(data.title, TITLE_SIZE, CARD_W - 2 * PAD - dives_w - SCORE_GAP)
+    title = _fit(drawable(data.title), TITLE_SIZE, CARD_W - 2 * PAD - dives_w - SCORE_GAP)
     beside_score = PAD + _width(score_text, SCORE_SIZE) + SCORE_GAP
     moving = "" if not data.ma else f"{data.window.upper()} MOVING AVERAGE"
     rank = "" if data.rank is None else _fit(
-        f"RANK #{data.rank} IN {data.guild.upper()}", LABEL_SIZE, CARD_W - 2 * PAD
+        f"RANK #{data.rank} IN {drawable(data.guild).upper()}", LABEL_SIZE, CARD_W - 2 * PAD
     )
 
     # room above the chart for an avatar riding a 700

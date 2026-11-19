@@ -28,6 +28,12 @@ Shows someone's rank on every leaderboard, with a card charting their scores ove
 /mg-cleartopu || [user]
 Deletes cached /topu cards (someone's, or everyone's in this server after confirming) so they're drawn fresh.
 
+/topg || [since]
+This server versus the global median.
+
+/mg-cleartopg
+Deletes this server's cached /topg cards so they're drawn fresh.
+
 /mg-refetchtop
 Rebuilds this server's leaderboards now, then shows them.
 
