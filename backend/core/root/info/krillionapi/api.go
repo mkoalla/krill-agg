@@ -78,6 +78,27 @@ func (s Stats) Percentile(score float64) float64 {
 	return 100 * below / float64(s.Sample)
 }
 
+// Percentile backwards: the score a share q (0-1) of the histogram is under,
+// every bucket below it plus a linear share of its own. ok=false with nobody
+// in it
+func Quantile(dist []float64, q float64) (float64, bool) {
+	total := 0.0
+	for _, count := range dist {
+		total += count
+	}
+	if total <= 0 {
+		return 0, false
+	}
+	want, below := q*total, 0.0
+	for b, count := range dist {
+		if count > 0 && below+count >= want {
+			return float64(b*BUCKET_WIDTH) + (want-below)/count*BUCKET_WIDTH, true
+		}
+		below += count
+	}
+	return float64(len(dist) * BUCKET_WIDTH), true
+}
+
 // one of the day's seven questions
 type Prompt struct {
 	ID   string `json:"id"`

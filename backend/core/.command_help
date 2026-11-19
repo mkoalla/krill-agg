@@ -28,6 +28,9 @@ Shows someone's rank on every leaderboard, with a card charting their scores ove
 /mg-cleartopu || [user]
 Deletes cached /topu cards (someone's, or everyone's in this server after confirming) so they're drawn fresh.
 
+/quantile || [p] [ci]
+Shows what score beats p% of games here and globally, all-time, with a ci% confidence interval (default 90).
+
 /topg || [since]
 This server versus the global median.
 

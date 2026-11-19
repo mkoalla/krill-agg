@@ -51,24 +51,10 @@ func medianOf(sorted []int) float64 {
 	return float64(sorted[n/2-1]+sorted[n/2]) / 2
 }
 
-// the score half of krillion's histogram is under: every bucket below it, plus
-// a linear share of its own (like Stats.Percentile). ok=false with no players
+// the score half of krillion's histogram is under (see krillionapi.Quantile).
+// ok=false with no players
 func distMedian(dist []float64) (float64, bool) {
-	total := 0.0
-	for _, count := range dist {
-		total += count
-	}
-	if total <= 0 {
-		return 0, false
-	}
-	half, below := total/2, 0.0
-	for b, count := range dist {
-		if count > 0 && below+count >= half {
-			return float64(b*krillionapi.BUCKET_WIDTH) + (half-below)/count*krillionapi.BUCKET_WIDTH, true
-		}
-		below += count
-	}
-	return float64(len(dist) * krillionapi.BUCKET_WIDTH), true
+	return krillionapi.Quantile(dist, 0.5)
 }
 
 // what /topg draws: both series over days first..last

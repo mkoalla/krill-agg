@@ -27,3 +27,21 @@ func TestPercentile(t *testing.T) {
 		t.Errorf("empty stats = %v, want 0", got)
 	}
 }
+
+// Quantile runs Percentile backwards
+func TestQuantile(t *testing.T) {
+	dist := []float64{10, 30, 60}
+	s := Stats{Sample: 100, Dist: dist}
+	for _, q := range []float64{0.05, 0.1, 0.25, 0.5, 0.9, 0.99} {
+		score, ok := Quantile(dist, q)
+		if !ok {
+			t.Fatalf("Quantile(%v) not ok", q)
+		}
+		if back := s.Percentile(score); math.Abs(back-100*q) > 1e-9 {
+			t.Errorf("Quantile(%v) = %v, which is percentile %v", q, score, back)
+		}
+	}
+	if _, ok := Quantile(make([]float64, 20), 0.5); ok {
+		t.Error("an empty histogram has a quantile")
+	}
+}

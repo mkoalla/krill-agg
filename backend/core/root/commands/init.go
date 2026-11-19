@@ -10,6 +10,7 @@ import (
 	"krill-agg/root/commands/krill"
 	"krill-agg/root/commands/modrank"
 	"krill-agg/root/commands/ping"
+	"krill-agg/root/commands/quantile"
 	"krill-agg/root/commands/rank"
 	"krill-agg/root/commands/score"
 	"krill-agg/root/commands/stats"
@@ -56,6 +57,7 @@ var registers = []func(*types.BotCommandPackage){
 	krill.Register,
 	modrank.Register,
 	ping.Register,
+	quantile.Register,
 	rank.Register,
 	score.Register,
 	stats.Register,

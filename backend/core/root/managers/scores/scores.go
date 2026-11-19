@@ -38,7 +38,8 @@ type Entry struct {
 // guild -> day -> user -> score, backed by sqlite.
 // the guild always comes from where the message/interaction happened, never user input
 type ScoreManager struct {
-	db *scoredb.ScoreDB
+	db      *scoredb.ScoreDB
+	moments moments // every guild's running totals (see Moments)
 }
 
 func New(path string) (*ScoreManager, error) {
@@ -66,7 +67,12 @@ func (man *ScoreManager) Ingest(guild guildID, id uid, content string) Result {
 	}
 
 	// insert-if-absent is atomic, so two quick posts can't both be stored
+	man.moments.mu.Lock()
 	inserted, err := man.db.Insert(toRow(guild, id, p))
+	if err == nil && inserted {
+		man.moments.addLocked(guild, p.Score, 1)
+	}
+	man.moments.mu.Unlock()
 	if err != nil {
 		return Result{Outcome: Failed, Score: p, Err: err}
 	}
@@ -85,7 +91,20 @@ func (man *ScoreManager) Ingest(guild guildID, id uid, content string) Result {
 
 // overwrites unconditionally (used after a user confirms an update)
 func (man *ScoreManager) Set(guild guildID, id uid, p PlayerScore) error {
-	return man.db.Upsert(toRow(guild, id, p))
+	man.moments.mu.Lock()
+	defer man.moments.mu.Unlock()
+	old, had, err := man.Get(guild, p.Day, id)
+	if err != nil {
+		return err
+	}
+	if err := man.db.Upsert(toRow(guild, id, p)); err != nil {
+		return err
+	}
+	if had {
+		man.moments.addLocked(guild, old.Score, -1)
+	}
+	man.moments.addLocked(guild, p.Score, 1)
+	return nil
 }
 
 // overwrites many entries at once, all-or-nothing (used by backfill)
@@ -94,6 +113,9 @@ func (man *ScoreManager) SetMany(guild guildID, entries []Entry) error {
 	for i, e := range entries {
 		rows[i] = toRow(guild, e.UserID, e.Score)
 	}
+	man.moments.mu.Lock()
+	defer man.moments.mu.Unlock()
+	man.moments.forgetLocked(guild) // whatever happens, some rows may have changed
 	return man.db.UpsertMany(rows)
 }
 
@@ -104,11 +126,24 @@ func (man *ScoreManager) Count(guild guildID, id uid) (int, error) {
 
 // removes a user's result for a day; false means there wasn't one
 func (man *ScoreManager) Drop(guild guildID, id uid, day int) (bool, error) {
-	return man.db.Delete(guild, id, day)
+	man.moments.mu.Lock()
+	defer man.moments.mu.Unlock()
+	old, had, err := man.Get(guild, day, id)
+	if err != nil {
+		return false, err
+	}
+	deleted, err := man.db.Delete(guild, id, day)
+	if err == nil && deleted && had {
+		man.moments.addLocked(guild, old.Score, -1)
+	}
+	return deleted, err
 }
 
 // removes every result a user has in a guild; returns how many there were
 func (man *ScoreManager) DropAll(guild guildID, id uid) (int, error) {
+	man.moments.mu.Lock()
+	defer man.moments.mu.Unlock()
+	man.moments.forgetLocked(guild)
 	return man.db.DeleteUser(guild, id)
 }
 
