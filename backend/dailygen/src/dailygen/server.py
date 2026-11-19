@@ -18,13 +18,15 @@ played. "dist" is krillion's 20 bucket counts; null, [], or all-zero when
 there's no distribution that day. "population" overrides the "OF ..." footer
 wording (default "today's players").
 POST /trend {"guild", "user", "name", "title", "guild_name", "images", "points",
-             "ma"?, "window"?, "rank"?, "deadline"?}
+             "ma"?, "window"?, "rank"?, "global"?, "global_ma"?, "deadline"?}
   -> 200 {"path": "<guild>/users/<user>/<name>"}, overwriting
 "name" is the card's file name (a bare *.webp): the bot names cards by what
 they show and only asks for one it doesn't already have.
 One player's games over a period (/topu): "points" is [{"day", "score"}] per
 game, "ma" [{"day", "value"}] the moving average the bot worked out over a
 "window" (e.g. "1-WEEK"), "rank" their place on the guild's best-score board.
+"global" is [{"day", "value"}], every krillion player's median by day (cyan,
+under the player's yellow), and "global_ma" its moving average.
 The avatar is <guild>/users/<user>/<images>/0.png; errors are as /render's.
 POST /median {"guild", "name", "title", "images", "first", "last",
               "guild_series", "global_series"?, "window"?, "percentile"?,
@@ -142,6 +144,8 @@ def build_trend(body: dict, data_dir: Path) -> tuple[trend.TrendData, Path]:
         points = sorted((int(p["day"]), float(p["score"])) for p in body["points"])
         ma = sorted((int(p["day"]), float(p["value"])) for p in body.get("ma") or [])
         rank = None if body.get("rank") is None else int(body["rank"])
+        everyone = sorted((int(p["day"]), float(p["value"])) for p in body.get("global") or [])
+        everyone_ma = sorted((int(p["day"]), float(p["value"])) for p in body.get("global_ma") or [])
     except (KeyError, TypeError, ValueError) as err:
         raise BadRequest(f"bad field: {err}") from None
     if not points:
@@ -155,6 +159,8 @@ def build_trend(body: dict, data_dir: Path) -> tuple[trend.TrendData, Path]:
         window=str(body.get("window", ""))[:20],
         rank=rank,
         avatar=str(user_dir / images_name / "0.png"),
+        everyone=everyone,
+        everyone_ma=everyone_ma,
     )
     return data, user_dir / name
 

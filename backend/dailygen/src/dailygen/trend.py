@@ -1,13 +1,14 @@
 """One player's scores over a period (/topu), dressed like the daily card.
 
 Days run left to right from their first game to their latest, score 0-700
-bottom to top. The cyan line is every game, filled up to their best; the
-yellow one is a moving average the bot worked out. Their avatar rides the
-latest game like the head of a snake.
+bottom to top. The player is yellow: every game drawn faint, best and worst
+pinned, and the moving average the bot worked out over them, with their
+avatar riding its end like the head of a snake. Every krillion player is
+cyan: each day's median faint, its moving average over it.
 """
 
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html import escape
 
 import resvg_py
@@ -16,6 +17,7 @@ from PIL import Image
 from . import curve
 from .card import (
     ABYSS,
+    ADVANCE_EM,
     BLANK,
     CARD_W,
     CYAN,
@@ -27,7 +29,6 @@ from .card import (
     LABEL_SIZE,
     LABEL_SPACING_EM,
     PAD,
-    RING,
     SCORE_BASELINE,
     SCORE_GAP,
     SCORE_SIZE,
@@ -64,7 +65,14 @@ LABEL_INSET = 11  # half a 4-digit day label: centered labels keep this far in
 
 DOT_R = 1.6
 MA_WIDTH = 1.4
+AVG_WIDTH = 1.8  # a moving average, over its faint daily values
+FAINT = 0.3  # daily values, under their averages
 FOOT_GAP = 30  # chart bottom to the footer's baseline
+SWATCH = 12  # the legend's squares
+SWATCH_GAP = 6  # a square to its name
+LEGEND_GAP = 14  # one name to the next square
+FOOT_ROW = 30  # the legend's baseline to the line under it
+EVERYONE = "ALL PLAYERS"
 
 
 @dataclass
@@ -75,6 +83,8 @@ class TrendData:
     ma: list[tuple[int, float]]  # (day, moving average), days ascending
     window: str  # the moving average's span, e.g. "1-WEEK"
     rank: int | None = None  # on the guild's best-score board; None draws no rank line
+    everyone: list[tuple[int, float]] = field(default_factory=list)  # (day, every player's median), days ascending
+    everyone_ma: list[tuple[int, float]] = field(default_factory=list)  # (day, its moving average)
     avatar: str | None = None  # image path; missing/unreadable means a blank disc
     user_size: float = 32  # avatar diameter
 
@@ -147,40 +157,18 @@ def grid_svg(first: int, last: int) -> list[str]:
 
 
 def games_svg(x, points: list[tuple[int, float]], ma: list[tuple[int, float]]) -> list[str]:
-    """points (day, score) as the cyan line, filled up to the best, with a dot
-    each and best/worst pinned; ma as the yellow line. x maps a day to the chart"""
-    bounds = (TOP, BASELINE)
+    """points (day, score) drawn faint in yellow, a faint dot each, best and
+    worst pinned; ma as the yellow line over them. x maps a day to the chart"""
     pts = [(x(d), score_y(s)) for d, s in points]
     best = min(points, key=lambda p: (-p[1], p[0]))
     worst = min(points, key=lambda p: (p[1], p[0]))
     bx, wx = x(best[0]), x(worst[0])
 
-    parts = []
-    # filled up to their best, like the daily card fills up to the average
-    line = curve.bezier_path(pts, bounds)
-    if line:
-        area = f"{line} L {pts[-1][0]:.3f} {BASELINE} L {pts[0][0]:.3f} {BASELINE} Z"
-        parts.append(
-            f'<defs><linearGradient id="tr-fill" x1="0" y1="0" x2="0" y2="1">'
-            f'<stop offset="0%" stop-color="{CYAN}" stop-opacity="0.45"/>'
-            f'<stop offset="100%" stop-color="{CYAN}" stop-opacity="0.02"/>'
-            f"</linearGradient>"
-            f'<clipPath id="tr-best"><rect x="0" y="0" width="{bx:.3f}" height="{BASELINE}"/></clipPath></defs>'
-            f'<path d="{area}" fill="url(#tr-fill)" clip-path="url(#tr-best)"/>'
-            f'<path d="{line}" fill="none" stroke="{CYAN}" stroke-width="1.4" stroke-opacity="0.75"/>'
-        )
-
-    # the moving average: just a line
-    ma_line = line_path(x, ma)
-    if ma_line:
-        parts.append(
-            f'<path d="{ma_line}" fill="none" stroke="{YELLOW}" stroke-width="{MA_WIDTH}" stroke-opacity="0.9"/>'
-        )
-
+    parts = faint_and_average(x, points, ma, YELLOW)
     # a dot per game, shrinking when days crowd together
     spacing = (RIGHT - LEFT) / max(len(pts) - 1, 1)
     r = min(DOT_R, max(spacing * 0.35, 0.6))
-    parts += [f'<circle cx="{px:.3f}" cy="{py:.3f}" r="{r:.2f}" fill="{CYAN}"/>' for px, py in pts]
+    parts += [f'<circle cx="{px:.3f}" cy="{py:.3f}" r="{r:.2f}" fill="{YELLOW}" fill-opacity="{FAINT}"/>' for px, py in pts]
 
     # worst and best, pinned from the dot down, labeled "score (#day)". one
     # game is both: just the one pin then
@@ -198,11 +186,23 @@ def games_svg(x, points: list[tuple[int, float]], ma: list[tuple[int, float]]) -
     for game, mx, lx in marks:
         my = score_y(game[1])
         parts.append(
-            f'<line x1="{mx:.3f}" y1="{my:.3f}" x2="{mx:.3f}" y2="{BASELINE}" stroke="{CYAN}" stroke-width="1.2"/>'
-            f'<circle cx="{mx:.3f}" cy="{my:.3f}" r="2.6" fill="{CYAN}"/>'
+            f'<line x1="{mx:.3f}" y1="{my:.3f}" x2="{mx:.3f}" y2="{BASELINE}" stroke="{YELLOW}" stroke-width="1.2"/>'
+            f'<circle cx="{mx:.3f}" cy="{my:.3f}" r="2.6" fill="{YELLOW}"/>'
             f'<text x="{lx:.3f}" y="{MARK_ROW}" text-anchor="middle" font-size="{MARK_SIZE}" '
-            f'letter-spacing="{_spacing(MARK_SIZE, MARK_SPACING_EM)}" fill="{CYAN}">{label(game)}</text>'
+            f'letter-spacing="{_spacing(MARK_SIZE, MARK_SPACING_EM)}" fill="{YELLOW}">{label(game)}</text>'
         )
+    return parts
+
+
+def faint_and_average(x, points: list[tuple[int, float]], ma: list[tuple[int, float]], color: str) -> list[str]:
+    """points as a faint line in color, ma as a solid one over it"""
+    parts = []
+    daily = line_path(x, points)
+    if daily:
+        parts.append(f'<path d="{daily}" fill="none" stroke="{color}" stroke-width="1" stroke-opacity="{FAINT}"/>')
+    avg = line_path(x, ma)
+    if avg:
+        parts.append(f'<path d="{avg}" fill="none" stroke="{color}" stroke-width="{AVG_WIDTH}" stroke-opacity="0.95"/>')
     return parts
 
 
@@ -213,13 +213,47 @@ def line_path(x, points: list[tuple[int, float]]) -> str:
 
 def chart_svg(data: TrendData) -> str:
     first, last = data.points[0][0], data.points[-1][0]
-    return "\n  ".join(grid_svg(first, last) + games_svg(day_xs(first, last), data.points, data.ma))
+    x = day_xs(first, last)
+    # everyone under the player, so the player reads on top where they meet
+    everyone = faint_and_average(x, data.everyone, data.everyone_ma, CYAN)
+    return "\n  ".join(grid_svg(first, last) + everyone + games_svg(x, data.points, data.ma))
+
+
+def _label_w(text: str) -> float:
+    """a spaced label's drawn width: letter-spacing trails every glyph but the last"""
+    return max(_width(text, LABEL_SIZE, LABEL_SPACING_EM) - LABEL_SIZE * LABEL_SPACING_EM, 0)
+
+
+def fit_label(text: str, room: float) -> str:
+    """a spaced label cut to room"""
+    # _fit measures unspaced glyphs: a size that advances as far as a spaced one
+    return _fit(text, LABEL_SIZE * (1 + LABEL_SPACING_EM / ADVANCE_EM), room)
+
+
+def legend_svg(entries: list[tuple[str, str]], baseline: float) -> str:
+    """a square and name for each (name, color) in a row. with two, a name gets
+    half the room, or more when the other needs less"""
+    spacing = _spacing(LABEL_SIZE, LABEL_SPACING_EM)
+    room = CARD_W - 2 * PAD - len(entries) * (SWATCH + SWATCH_GAP) - (len(entries) - 1) * LEGEND_GAP
+    names = [drawable(name).upper() for name, _ in entries]
+    if len(names) == 2:
+        names = [fit_label(n, room - min(_label_w(other), room / 2)) for n, other in zip(names, reversed(names))]
+    parts, x = [], float(PAD)
+    for text, (_, color) in zip(names, entries):
+        parts.append(
+            f'<rect x="{x:.2f}" y="{baseline - SWATCH:.2f}" width="{SWATCH}" height="{SWATCH}" fill="{color}"/>'
+            f'<text x="{x + SWATCH + SWATCH_GAP:.2f}" y="{baseline:.2f}" font-size="{LABEL_SIZE}" letter-spacing="{spacing}" '
+            f'fill="{color}">{escape(text)}</text>'
+        )
+        x += SWATCH + SWATCH_GAP + _label_w(text) + LEGEND_GAP
+    return "".join(parts)
 
 
 def avatar_svg(data: TrendData, chart_top: float) -> str:
-    """their avatar centered on the latest game's dot, kept inside the card"""
-    day, score = data.points[-1]
-    x = day_xs(data.points[0][0], day)(day)
+    """their avatar centered on the end of their moving average (their latest
+    game without one), kept inside the card and ringed in yellow"""
+    day, score = (data.ma or data.points)[-1]
+    x = day_xs(data.points[0][0], data.points[-1][0])(day)
     r = data.user_size / 2
     cx = min(max(PAD + x * CHART_SCALE, r + 2), CARD_W - r - 2)
     cy = chart_top + score_y(score) * CHART_SCALE
@@ -232,7 +266,7 @@ def avatar_svg(data: TrendData, chart_top: float) -> str:
         )
     else:
         disc = f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{r:.2f}" fill="{BLANK}"/>'
-    return disc + f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{r:.2f}" fill="none" stroke="{RING}" stroke-width="2"/>'
+    return disc + f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="{r:.2f}" fill="none" stroke="{YELLOW}" stroke-width="2"/>'
 
 
 def render_svg(data: TrendData) -> str:
@@ -245,7 +279,7 @@ def render_svg(data: TrendData) -> str:
     dives_w = _width(dives, LABEL_SIZE, LABEL_SPACING_EM)
     title = _fit(drawable(data.title), TITLE_SIZE, CARD_W - 2 * PAD - dives_w - SCORE_GAP)
     beside_score = PAD + _width(score_text, SCORE_SIZE) + SCORE_GAP
-    moving = "" if not data.ma else f"{data.window.upper()} MOVING AVERAGE"
+    moving = "" if not data.ma else f"{data.window.upper()} MOVING AVERAGE{'S' if data.everyone_ma else ''}"
     rank = "" if data.rank is None else _fit(
         f"RANK #{data.rank} IN {drawable(data.guild).upper()}", LABEL_SIZE, CARD_W - 2 * PAD
     )
@@ -253,9 +287,11 @@ def render_svg(data: TrendData) -> str:
     # room above the chart for an avatar riding a 700
     chart_top = SCORE_BASELINE + SCORE_GAP + data.user_size / 2
     chart_bottom = chart_top + CHART_H * CHART_SCALE
-    foot_baseline = chart_bottom + FOOT_GAP
+    legend_baseline = chart_bottom + FOOT_GAP
+    foot_baseline = legend_baseline + FOOT_ROW
     card_h = round(foot_baseline + PAD - 4)
     chart = f"translate({PAD} {chart_top:.2f}) scale({CHART_SCALE:.5f})"
+    legend = [(data.title, YELLOW)] + ([(EVERYONE, CYAN)] if data.everyone else [])
 
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{CARD_W}" height="{card_h}" viewBox="0 0 {CARD_W} {card_h}" font-family="{FONT_FAMILY}">
   <defs>
@@ -275,17 +311,18 @@ def render_svg(data: TrendData) -> str:
   <text x="{PAD}" y="{_baseline_for_top(TITLE_TOP, TITLE_SIZE):.2f}" font-size="{TITLE_SIZE}" fill="{FOAM}">{escape(title)}</text>
   <text x="{CARD_W - PAD}" y="{_baseline_for_top(TITLE_TOP, LABEL_SIZE):.2f}" text-anchor="end" font-size="{LABEL_SIZE}" letter-spacing="{label_spacing}" fill="{DRIFT}">{dives}</text>
 
-  <text x="{PAD}" y="{SCORE_BASELINE:.2f}" font-size="{SCORE_SIZE}" fill="{CYAN}" opacity="0.45" filter="url(#glow)">{score_text}</text>
+  <text x="{PAD}" y="{SCORE_BASELINE:.2f}" font-size="{SCORE_SIZE}" fill="{YELLOW}" opacity="0.35" filter="url(#glow)">{score_text}</text>
   <text x="{PAD}" y="{SCORE_BASELINE:.2f}" font-size="{SCORE_SIZE}" fill="{FOAM}">{score_text}</text>
   <text x="{beside_score:.2f}" y="{_baseline_for_top(SCORE_TOP, LABEL_SIZE):.2f}" font-size="{LABEL_SIZE}" letter-spacing="{label_spacing}" fill="{DRIFT}">BEST SCORE</text>
-  <text x="{beside_score:.2f}" y="{SCORE_BASELINE:.2f}" font-size="{LABEL_SIZE}" fill="{YELLOW}">{escape(moving)}</text>
+  <text x="{beside_score:.2f}" y="{SCORE_BASELINE:.2f}" font-size="{LABEL_SIZE}" fill="{FOAM}">{escape(moving)}</text>
 
   <g transform="{chart}">
   {chart_svg(data)}
   </g>
   {avatar_svg(data, chart_top)}
 
-  <text x="{PAD}" y="{foot_baseline:.2f}" font-size="{LABEL_SIZE}" letter-spacing="{label_spacing}" fill="{CYAN}" filter="url(#shadow)">{escape(rank)}</text>
+  {legend_svg(legend, legend_baseline)}
+  <text x="{PAD}" y="{foot_baseline:.2f}" font-size="{LABEL_SIZE}" letter-spacing="{label_spacing}" fill="{YELLOW}" filter="url(#shadow)">{escape(rank)}</text>
 </svg>
 """
 

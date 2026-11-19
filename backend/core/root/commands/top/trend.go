@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"krill-agg/root/commands/daily"
 	"krill-agg/root/info/dailygen"
+	"krill-agg/root/info/krillionapi"
 	"krill-agg/root/info/theme"
 	"krill-agg/root/krillion"
+	"krill-agg/root/managers/distributions"
 	"krill-agg/root/managers/leaderboard"
 	"krill-agg/root/managers/scores"
 	"krill-agg/root/types"
@@ -91,12 +93,33 @@ func seriesAverage(points []dailygen.TrendAverage, window int) []dailygen.TrendA
 // how long the bot waits on dailygen for one trend card
 const TREND_TIMEOUT = 5 * time.Second
 
-// a card is named by what it shows: the period and the days its games span.
-// a new game (or the period's window leaving an old one behind) is a new
-// name, so a new card; anything else (nickname, rank, a corrected score)
-// shows up with the next one
-func trendName(period string, games []scores.PlayerScore) string {
-	return fmt.Sprintf("trend_%s_%d-%d.webp", period, games[0].Day, games[len(games)-1].Day)
+// a card is named by what it shows: the period, the days its games span and
+// the last day with a global median (0 for none). a new game, the period's
+// window leaving an old one behind, or a day's histogram saved after the card
+// was drawn is a new name, so a new card; anything else (nickname, rank, a
+// corrected score) shows up with the next one
+func trendName(period string, games []scores.PlayerScore, global []dailygen.TrendAverage) string {
+	lastGlobal := 0
+	if len(global) > 0 {
+		lastGlobal = global[len(global)-1].Day
+	}
+	return fmt.Sprintf("trend_%s_%d-%d_g%d.webp", period, games[0].Day, games[len(games)-1].Day, lastGlobal)
+}
+
+// every krillion player's median on each day their games span (days without
+// a saved histogram left off), drawn under them
+func globalTrend(dist func(day int) (krillionapi.Stats, bool), games []scores.PlayerScore) []dailygen.TrendAverage {
+	var out []dailygen.TrendAverage
+	for d := games[0].Day; d <= games[len(games)-1].Day; d++ {
+		s, ok := dist(d)
+		if !ok || !distributions.HasDist(s) {
+			continue
+		}
+		if m, ok := distMedian(s.Dist); ok {
+			out = append(out, dailygen.TrendAverage{Day: d, Value: m})
+		}
+	}
+	return out
 }
 
 // a guild's folder of players' cards, each player in their own folder
@@ -105,8 +128,8 @@ func trendsDir(bcp *types.BotCommandPackage, guild string) string {
 }
 
 // where a player's card for these games lives
-func trendPath(bcp *types.BotCommandPackage, guild, user, period string, games []scores.PlayerScore) string {
-	return filepath.Join(trendsDir(bcp, guild), user, trendName(period, games))
+func trendPath(bcp *types.BotCommandPackage, guild, user, period string, games []scores.PlayerScore, global []dailygen.TrendAverage) string {
+	return filepath.Join(trendsDir(bcp, guild), user, trendName(period, games, global))
 }
 
 // removes players' cached cards and links in a guild (every player's when
@@ -187,7 +210,7 @@ func claimDraw(guild, user string) (publish func(link string), done func(), err 
 // goes first and returns a link to the reply that will carry it; if one of
 // the player's cards is already being drawn, nothing is and the error is a
 // *drawingError. the period's older cards and links are removed
-func cachedTrend(s *discordgo.Session, bcp *types.BotCommandPackage, path, guild, guildName, user, period string, games []scores.PlayerScore, onDraw func() (string, error)) error {
+func cachedTrend(s *discordgo.Session, bcp *types.BotCommandPackage, path, guild, guildName, user, period string, games []scores.PlayerScore, global []dailygen.TrendAverage, onDraw func() (string, error)) error {
 	dir, name := filepath.Dir(path), filepath.Base(path)
 	if _, err := os.Stat(path); err == nil {
 		return nil
@@ -202,7 +225,7 @@ func cachedTrend(s *discordgo.Session, bcp *types.BotCommandPackage, path, guild
 		return err
 	}
 	publish(link)
-	if err := trendImage(s, bcp, dir, name, guild, guildName, user, period, games); err != nil {
+	if err := trendImage(s, bcp, dir, name, guild, guildName, user, period, games, global); err != nil {
 		return err
 	}
 	old, _ := filepath.Glob(filepath.Join(dir, "trend_"+period+"_*"))
@@ -214,8 +237,9 @@ func cachedTrend(s *discordgo.Session, bcp *types.BotCommandPackage, path, guild
 	return nil
 }
 
-// draws their games (at least one) over the period as dir/name
-func trendImage(s *discordgo.Session, bcp *types.BotCommandPackage, dir, name, guild, guildName, user, period string, games []scores.PlayerScore) error {
+// draws their games (at least one) over the period as dir/name, every
+// player's daily median (global) under them
+func trendImage(s *discordgo.Session, bcp *types.BotCommandPackage, dir, name, guild, guildName, user, period string, games []scores.PlayerScore, global []dailygen.TrendAverage) error {
 	req := dailygen.TrendRequest{
 		Guild:     guild,
 		User:      user,
@@ -229,6 +253,7 @@ func trendImage(s *discordgo.Session, bcp *types.BotCommandPackage, dir, name, g
 	}
 	window, label := maWindow(games[len(games)-1].Day - games[0].Day + 1)
 	req.MA, req.Window = movingAverage(games, window), label
+	req.Global, req.GlobalMA = global, seriesAverage(global, window)
 	rows, _, err := bcp.Leaderboard.Board(guild, leaderboard.BEST, period)
 	if err != nil {
 		return err
@@ -292,13 +317,14 @@ func attachTrend(s *discordgo.Session, bcp *types.BotCommandPackage, i *discordg
 		return errors.Join(fmt.Errorf("trend image: %v", reason), err)
 	}
 
-	path := trendPath(bcp, guild, user, period, games)
+	global := globalTrend(bcp.Distributions.Get, games)
+	path := trendPath(bcp, guild, user, period, games, global)
 	if url, at, ok := daily.ReadLink(trendLink(path)); ok {
 		_, err := send(imageEmbed(fmt.Sprintf("-# Image reused from <t:%d:R>", at.Unix()), url), nil)
 		return err
 	}
 	placed := false // the placeholder went out, so a failure has a message to edit
-	err = cachedTrend(s, bcp, path, guild, guildName, user, period, games, func() (string, error) {
+	err = cachedTrend(s, bcp, path, guild, guildName, user, period, games, global, func() (string, error) {
 		msg, err := send(imageEmbed("-# generating image...", ""), nil)
 		if err != nil {
 			return "", err

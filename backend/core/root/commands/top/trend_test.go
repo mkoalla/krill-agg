@@ -3,6 +3,7 @@ package top
 import (
 	"errors"
 	"krill-agg/root/info/dailygen"
+	"krill-agg/root/info/krillionapi"
 	"krill-agg/root/managers/scores"
 	"krill-agg/root/types"
 	"os"
@@ -70,8 +71,13 @@ func TestHistory(t *testing.T) {
 }
 
 func TestTrendName(t *testing.T) {
-	if got := trendName("week", games(118, 1, 120, 2, 124, 3)); got != "trend_week_118-124.webp" {
+	if got := trendName("week", games(118, 1, 120, 2, 124, 3), nil); got != "trend_week_118-124_g0.webp" {
 		t.Errorf("trendName = %q", got)
+	}
+	// a day's histogram saved later is a new card
+	global := []dailygen.TrendAverage{{Day: 118, Value: 300}, {Day: 123, Value: 310}}
+	if got := trendName("week", games(118, 1, 124, 3), global); got != "trend_week_118-124_g123.webp" {
+		t.Errorf("trendName with global = %q", got)
 	}
 }
 
@@ -79,8 +85,8 @@ func TestTrendName(t *testing.T) {
 func TestCachedTrendReuses(t *testing.T) {
 	bcp := &types.BotCommandPackage{DataDir: t.TempDir()}
 	g := games(118, 300, 124, 400)
-	path := trendPath(bcp, "1", "2", "week", g)
-	if want := filepath.Join(bcp.DataDir, dailygen.DIR, "1", "users", "2", "trend_week_118-124.webp"); path != want {
+	path := trendPath(bcp, "1", "2", "week", g, nil)
+	if want := filepath.Join(bcp.DataDir, dailygen.DIR, "1", "users", "2", "trend_week_118-124_g0.webp"); path != want {
 		t.Fatalf("trendPath = %q, want %q", path, want)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -89,7 +95,7 @@ func TestCachedTrendReuses(t *testing.T) {
 	if err := os.WriteFile(path, []byte("card"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := cachedTrend(nil, bcp, path, "1", "Krill Club", "2", "week", g, func() (string, error) {
+	err := cachedTrend(nil, bcp, path, "1", "Krill Club", "2", "week", g, nil, func() (string, error) {
 		t.Error("drew a card that was already on disk")
 		return "", nil
 	})
@@ -138,7 +144,7 @@ func TestCachedTrendTurnsAwayADuplicate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer done()
-	err = cachedTrend(nil, bcp, trendPath(bcp, "1", "2", "month", g), "1", "Krill Club", "2", "month", g, func() (string, error) {
+	err = cachedTrend(nil, bcp, trendPath(bcp, "1", "2", "month", g, nil), "1", "Krill Club", "2", "month", g, nil, func() (string, error) {
 		t.Error("drew while another draw was underway")
 		return "", nil
 	})
@@ -189,5 +195,24 @@ func TestClearTrends(t *testing.T) {
 	// a guild nobody has cards in yet
 	if n, busy, err := clearTrends(bcp, "2", nil); err != nil || n != 0 || len(busy) != 0 {
 		t.Errorf("empty guild = %d %v %v", n, busy, err)
+	}
+}
+
+// every player's median on each day the games span that has a histogram
+func TestGlobalTrend(t *testing.T) {
+	saved := map[int]krillionapi.Stats{
+		99:  hist(10, 100), // before their first game
+		101: hist(10, 100), // 350-385: 367.5
+		102: {Sample: 0},   // no histogram
+		104: hist(0, 50),   // 0-35: 17.5
+	}
+	dist := func(day int) (krillionapi.Stats, bool) {
+		s, ok := saved[day]
+		return s, ok
+	}
+	got := globalTrend(dist, games(100, 300, 104, 400))
+	want := []dailygen.TrendAverage{{Day: 101, Value: 367.5}, {Day: 104, Value: 17.5}}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("globalTrend = %+v", got)
 	}
 }

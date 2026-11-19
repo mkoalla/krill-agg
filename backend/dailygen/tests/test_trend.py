@@ -51,7 +51,7 @@ def test_renders(points):
 
 def test_pins_are_labeled_with_their_scores():
     svg = render_svg(data([(1, 300), (2, 512), (3, 104)]))
-    assert f'fill="{trend.CYAN}">512 (#2)</text>' in svg and f'fill="{trend.CYAN}">104 (#3)</text>' in svg
+    assert f'fill="{trend.YELLOW}">512 (#2)</text>' in svg and f'fill="{trend.YELLOW}">104 (#3)</text>' in svg
     # one game is both best and worst: one pin
     assert render_svg(data([(124, 302)])).count('r="2.6"') == 1
 
@@ -97,3 +97,29 @@ def test_pin_labels_never_overlap_or_leave_the_chart(a, b):
     for x, w in ((la, wa), (lb, wb)):
         assert w / 2 <= x + 1e-9 and x + w / 2 <= trend.WIDTH + 1e-9
     assert (la <= lb) == (a <= b)  # each stays on its own pin's side
+
+
+def test_player_yellow_over_global_cyan():
+    everyone = [(1, 280), (2, 300), (3, 290)]
+    svg = render_svg(data([(1, 300), (2, 512), (3, 104)], everyone=everyone, everyone_ma=everyone))
+    faint = f'stroke-width="1" stroke-opacity="{trend.FAINT}"'
+    # both sides' daily lines faint, their averages solid; everyone under the player
+    assert f'stroke="{trend.CYAN}" {faint}' in svg and f'stroke="{trend.YELLOW}" {faint}' in svg
+    cyan = f'stroke="{trend.CYAN}" stroke-width="{trend.AVG_WIDTH}"'
+    yellow = f'stroke="{trend.YELLOW}" stroke-width="{trend.AVG_WIDTH}"'
+    assert cyan in svg and yellow in svg and svg.index(cyan) < svg.index(yellow)
+    assert ">KRILLMASTER<" in svg and ">ALL PLAYERS<" in svg and "1-WEEK MOVING AVERAGES" in svg
+    # no global: no cyan line, no legend entry
+    alone = render_svg(data([(1, 300), (2, 512)]))
+    assert f'stroke="{trend.CYAN}"' not in alone and "ALL PLAYERS" not in alone and "1-WEEK MOVING AVERAGE<" in alone
+
+
+def test_trend_accepts_global(server):  # noqa: F811
+    url, root = server
+    images = root / "123" / "users" / "456" / "scratch"
+    images.mkdir(parents=True)
+    status, _ = post(url, trend_body(**{"global": [{"day": 1, "value": 280}, {"day": 3, "value": 300}],
+                                        "global_ma": [{"day": 1, "value": 280}]}), "/trend")
+    assert status == 200
+    status, resp = post(url, trend_body(**{"global": [{"day": "x", "value": 1}]}), "/trend")
+    assert status == 400

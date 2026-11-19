@@ -19,7 +19,6 @@ from PIL import Image
 from . import trend
 from .card import (
     ABYSS,
-    ADVANCE_EM,
     CARD_W,
     CYAN,
     DRIFT,
@@ -48,13 +47,10 @@ from .trend import YELLOW
 FRONT, BACK = YELLOW, CYAN
 
 ICON_SIZE = 32  # an icon riding the end of its moving average
-FAINT = 0.3  # each day's values, under the averages
-MA_WIDTH = 1.8
+FAINT = trend.FAINT
+MA_WIDTH = trend.AVG_WIDTH
 END_DOT_R = 2.6
-SWATCH = 12  # the legend's squares
-SWATCH_GAP = 6  # a square to its name
-LEGEND_GAP = 14  # one name to the next square
-FOOT_ROW = 30  # the legend's baseline to the line under it
+FOOT_ROW = trend.FOOT_ROW
 
 
 @dataclass
@@ -87,16 +83,7 @@ def lines_svg(card: Card) -> str:
     parts = trend.grid_svg(card.first, card.last)
     # the back line first, so the front one reads on top where they meet
     for line in (card.back, card.front):
-        daily = trend.line_path(x, line.points)
-        if daily:
-            parts.append(
-                f'<path d="{daily}" fill="none" stroke="{line.color}" stroke-width="1" stroke-opacity="{FAINT}"/>'
-            )
-        ma = trend.line_path(x, line.ma)
-        if ma:
-            parts.append(
-                f'<path d="{ma}" fill="none" stroke="{line.color}" stroke-width="{MA_WIDTH}" stroke-opacity="0.95"/>'
-            )
+        parts += trend.faint_and_average(x, line.points, line.ma, line.color)
         # without an icon, a dot ends the line
         if line.ma and not avatar_uri(line.icon):
             day, value = line.ma[-1]
@@ -127,32 +114,9 @@ def icon_svg(card: Card, line: Line, chart_top: float, clip: str) -> str:
     )
 
 
-def _label_w(text: str) -> float:
-    """a spaced label's drawn width: letter-spacing trails every glyph but the last"""
-    return max(_width(text, LABEL_SIZE, LABEL_SPACING_EM) - LABEL_SIZE * LABEL_SPACING_EM, 0)
-
-
-def _fit_label(text: str, room: float) -> str:
-    # _fit measures unspaced glyphs: a size that advances as far as a spaced one
-    return _fit(text, LABEL_SIZE * (1 + LABEL_SPACING_EM / ADVANCE_EM), room)
-
-
 def legend_svg(card: Card, baseline: float) -> str:
-    """a square and name for each line, the front one first. a name gets half
-    the room, or more when the other needs less"""
-    spacing = _spacing(LABEL_SIZE, LABEL_SPACING_EM)
-    room = CARD_W - 2 * PAD - 2 * (SWATCH + SWATCH_GAP) - LEGEND_GAP
-    names = [drawable(line.name).upper() for line in (card.front, card.back)]
-    names = [_fit_label(n, room - min(_label_w(other), room / 2)) for n, other in zip(names, reversed(names))]
-    parts, x = [], float(PAD)
-    for text, line in zip(names, (card.front, card.back)):
-        parts.append(
-            f'<rect x="{x:.2f}" y="{baseline - SWATCH:.2f}" width="{SWATCH}" height="{SWATCH}" fill="{line.color}"/>'
-            f'<text x="{x + SWATCH + SWATCH_GAP:.2f}" y="{baseline:.2f}" font-size="{LABEL_SIZE}" letter-spacing="{spacing}" '
-            f'fill="{line.color}">{escape(text)}</text>'
-        )
-        x += SWATCH + SWATCH_GAP + _label_w(text) + LEGEND_GAP
-    return "".join(parts)
+    """a square and name for each line, the front one first"""
+    return trend.legend_svg([(card.front.name, card.front.color), (card.back.name, card.back.color)], baseline)
 
 
 def days_label(card: Card) -> str:
@@ -170,7 +134,7 @@ def render_svg(card: Card) -> str:
     right_w = _width(right, LABEL_SIZE, LABEL_SPACING_EM)
     title = _fit(card.title, TITLE_SIZE, CARD_W - 2 * PAD - right_w - SCORE_GAP)
     beside_score = PAD + _width(card.score, SCORE_SIZE) + SCORE_GAP
-    label = _fit_label(card.label, CARD_W - PAD - beside_score)
+    label = trend.fit_label(card.label, CARD_W - PAD - beside_score)
 
     # room above the chart for an icon riding a 700
     chart_top = SCORE_BASELINE + SCORE_GAP + ICON_SIZE / 2

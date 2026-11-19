@@ -85,7 +85,10 @@ The bot names each card by its period and the days it covers, and asks only
 for one it hasn't drawn yet. It answers
 like `/render`. The avatar is `<guild>/users/<user>/<images>/0.png`. The bot
 works out the moving average (`ma`, over `window`, e.g. `"1-WEEK"`) and the
-player's best-score `rank`. Best and worst are taken from `points`.
+player's best-score `rank`. Best and worst are taken from `points`. `global` (`[{"day", "value"}]`)
+is every krillion player's median by day and `global_ma` its moving average,
+drawn cyan under the player's yellow; both sides' daily lines are faint under
+their averages, and the avatar rides the end of the player's average.
 
 `POST /median` with `{"guild", "name", "title", "images", "first", "last",
 "guild_series", "global_series"?, "window"?, "percentile"?, "icon"?,

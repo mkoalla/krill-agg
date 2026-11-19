@@ -90,7 +90,11 @@ type TrendRequest struct {
 	MA        []TrendAverage `json:"ma"`
 	Window    string         `json:"window"` // the moving average's span, e.g. "1-WEEK"
 	Rank      *int           `json:"rank"`   // on the best-score board; nil draws no rank line
-	Deadline  int64          `json:"deadline,omitempty"`
+	// every krillion player's median by day, and its moving average (cyan,
+	// under the player's yellow)
+	Global   []TrendAverage `json:"global"`
+	GlobalMA []TrendAverage `json:"global_ma"`
+	Deadline int64          `json:"deadline,omitempty"`
 }
 
 // renders a player's trend card; path is relative to DIR
