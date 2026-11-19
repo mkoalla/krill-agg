@@ -1,6 +1,7 @@
 package krill
 
 import (
+	"krill-agg/root/managers/pages"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -41,5 +42,20 @@ func TestClip(t *testing.T) {
 	}
 	if clip("short") != "short" {
 		t.Error("clip changed a short string")
+	}
+}
+
+func TestBook(t *testing.T) {
+	b := book(124, []string{"q"}, [][]Krill{{{Answer: "a", Quip: "ha"}}})
+	if len(b) != 2 {
+		t.Fatalf("%d pages", len(b))
+	}
+	answers, _ := b[0](pages.Info{Cur: 1, Max: 2})
+	quips, _ := b[1](pages.Info{Cur: 2, Max: 2})
+	if !strings.Contains(answers.Title, "#124") || !strings.Contains(answers.Description, "||q\n• a||") {
+		t.Errorf("answers = %q / %q", answers.Title, answers.Description)
+	}
+	if !strings.Contains(quips.Title, "Quips") || quips.Description != "||a\n• ha||" || quips.Footer.Text != "Page 2 / 2" {
+		t.Errorf("quips = %q / %q / %q", quips.Title, quips.Description, quips.Footer.Text)
 	}
 }

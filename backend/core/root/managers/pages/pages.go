@@ -140,32 +140,56 @@ func turn(cur, max int, dir string) int {
 	return (cur + 1) % max
 }
 
-// answers the interaction with the first page. anyone who can run command may
-// flip it; the user who opened it owns it, and their previous book (if any)
-// stops responding
-func (man *Manager) Open(s *discordgo.Session, i *discordgo.InteractionCreate, command string, pages []Page) error {
+// the first page and its buttons, with the book made its owner's newest
+func (man *Manager) open(i *discordgo.InteractionCreate, command string, pages []Page) (*discordgo.MessageEmbed, []discordgo.MessageComponent, error) {
 	if len(pages) == 0 {
-		return fmt.Errorf("pages: nothing to show")
+		return nil, nil, fmt.Errorf("pages: nothing to show")
 	}
 	owner := i.Member.User.ID
 	embed, err := pages[0](Info{Cur: 1, Max: len(pages)})
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	man.mu.Lock()
 	b := &book{pages: pages, command: command, epoch: man.nextEpoch(owner)}
 	man.books[owner] = b
 	man.mu.Unlock()
+	return embed, buttons(owner, b.epoch, len(pages)), nil
+}
 
+// answers the interaction with the first page. anyone who can run command may
+// flip it; the user who opened it owns it, and their previous book (if any)
+// stops responding
+func (man *Manager) Open(s *discordgo.Session, i *discordgo.InteractionCreate, command string, pages []Page) error {
+	embed, components, err := man.open(i, command, pages)
+	if err != nil {
+		return err
+	}
 	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Embeds:          []*discordgo.MessageEmbed{embed},
-			Components:      buttons(owner, b.epoch, len(pages)),
+			Components:      components,
 			AllowedMentions: &discordgo.MessageAllowedMentions{},
 		},
 	})
+}
+
+// Open for an interaction already answered with a deferral: the book goes in
+// as an edit of that reply
+func (man *Manager) OpenDeferred(s *discordgo.Session, i *discordgo.InteractionCreate, command string, pages []Page) error {
+	embed, components, err := man.open(i, command, pages)
+	if err != nil {
+		return err
+	}
+	embeds := []*discordgo.MessageEmbed{embed}
+	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Embeds:          &embeds,
+		Components:      &components,
+		AllowedMentions: &discordgo.MessageAllowedMentions{},
+	})
+	return err
 }
 
 // the book a click names, if it's from this run and still its owner's newest

@@ -3,10 +3,10 @@ package krill
 import (
 	"errors"
 	"fmt"
-	"krill-agg/root/info/theme"
 	"krill-agg/root/krillion"
 	"krill-agg/root/managers/authorize"
 	"krill-agg/root/managers/krills"
+	"krill-agg/root/managers/pages"
 	"krill-agg/root/types"
 	"strings"
 
@@ -96,10 +96,16 @@ func quipsBody(day [][]Krill) string {
 	return spoil(strings.Join(blocks, "\n\n"))
 }
 
-func embeds(dayNum int, questions []string, day [][]Krill) []*discordgo.MessageEmbed {
-	return []*discordgo.MessageEmbed{
-		{Title: fmt.Sprintf("%s 100 %s Krillion #%d %s", STAR, STAR, dayNum, krillion.HEADER_EMOJI), Description: clip(answersBody(questions, day)), Color: theme.ACCENT},
-		{Title: "Quips (click to show all)", Description: clip(quipsBody(day)), Color: theme.ACCENT},
+// two pages: the answers, then the quips
+func book(dayNum int, questions []string, day [][]Krill) []pages.Page {
+	page := func(title, body string) pages.Page {
+		return func(at pages.Info) (*discordgo.MessageEmbed, error) {
+			return pages.Embed(title, "", body, at), nil
+		}
+	}
+	return []pages.Page{
+		page(fmt.Sprintf("%s 100 %s Krillion #%d %s", STAR, STAR, dayNum, krillion.HEADER_EMOJI), clip(answersBody(questions, day))),
+		page(fmt.Sprintf("Quips · Krillion #%d (click to show all)", dayNum), clip(quipsBody(day))),
 	}
 }
 
@@ -148,8 +154,7 @@ func Register(bcp *types.BotCommandPackage) {
 				// not saved yet: today's are still on offer, so fetch and keep them
 				questions, _ = bcp.Questions.Fetch(day) //nolint // optional: a block just goes without its question
 			}
-			e := embeds(day, questions, answers)
-			return edit(&discordgo.WebhookEdit{Embeds: &e, AllowedMentions: &discordgo.MessageAllowedMentions{}})
+			return bcp.Pages.OpenDeferred(s, i, "krill", book(day, questions, answers))
 		},
 	}
 }
