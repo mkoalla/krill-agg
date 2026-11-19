@@ -7,7 +7,7 @@ init:
 		echo ".env file not found"; \
 		exit 1; \
 	fi
-	mkdir -p ./data/logs/ ./data/dailygen/
+	@mkdir -p ./data/logs/ ./data/dailygen/
 
 
 build: init
@@ -50,8 +50,8 @@ DEV_DAILYGEN_PORT := 40404
 # add env vars and overwrite MODE. the card renderer runs alongside on localhost
 # and stops with the bot
 dev: init
-	ln -srfn ./data ./backend/core/data
-	(cd backend/dailygen && exec uv run python -m dailygen.server --port $(DEV_DAILYGEN_PORT) --data-dir ../../data/dailygen) & \
+	@ln -srfn ./data ./backend/core/data
+	@(cd backend/dailygen && exec uv run python -m dailygen.server --port $(DEV_DAILYGEN_PORT) --data-dir ../../data/dailygen) & \
 	DAILYGEN=$$!; trap "kill $$DAILYGEN 2>/dev/null" EXIT INT TERM; \
 	export $$(grep -v '^#' .env | xargs) && \
 		cd backend/core && \
