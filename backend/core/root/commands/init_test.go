@@ -5,6 +5,7 @@ import (
 	"krill-agg/root/managers/components"
 	"krill-agg/root/managers/pages"
 	"krill-agg/root/types"
+	"os"
 	"strings"
 	"testing"
 )
@@ -12,9 +13,13 @@ import (
 // every command that needs MANAGE or above is named mg-..., and nothing
 // else is, so the manager commands sort together and read as such
 func TestManagerCommandsArePrefixed(t *testing.T) {
+	help, err := os.ReadFile("../../.command_help") // /help panics without its sections
+	if err != nil {
+		t.Fatal(err)
+	}
 	handles := map[string]CommandInfo{}
 	var messages []types.MessageCallback
-	bcp := &types.BotCommandPackage{Handles: &handles, MessageHandlers: &messages, Components: components.New(), Pages: pages.New()}
+	bcp := &types.BotCommandPackage{Handles: &handles, MessageHandlers: &messages, Components: components.New(), Pages: pages.New(), HelpText: string(help)}
 	for _, reg := range registers {
 		reg(bcp)
 	}

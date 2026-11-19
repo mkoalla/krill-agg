@@ -1,17 +1,9 @@
-/help
-Lists every command.
-
-/stats || [day]
-Shows a day's scores; finished days also get percentiles, the questions and the card.
-
-/score || [user] [day]
-Shows someone's result for a day and where it ranks among today's players.
-
+!Game Info
 /day
 Shows which Krillion is live and when the next one starts.
 
-/drop || [day]
-Deletes your score for a day, or all of them, after confirming twice.
+/stats || [day]
+Shows a day's scores; finished days also get percentiles, the questions and the card.
 
 /krill || [day]
 Shows a day's 100-point krillion answers and their quips, spoilered.
@@ -19,32 +11,40 @@ Shows a day's 100-point krillion answers and their quips, spoilered.
 /forcedaily
 Posts today's report now: scores, percentiles, questions and the card.
 
-/top || [type] [since]
-Pages through this server's leaderboards (best, worst, average, games played).
-
-/topu || [user] [since]
-Shows someone's rank on every leaderboard, with a card charting their scores over that period.
-
-/mg-cleartopu || [user]
-Deletes cached /topu cards (someone's, or everyone's in this server after confirming) so they're drawn fresh.
-
-/compare || [user1] [user2] [since]
-Puts two players' ranks and scores side by side; with one, you against them, with none, you against this server.
-
 /quantile || [p] [ci]
 Shows what score beats p% of games here and globally, all-time, with a ci% confidence interval (default 90).
 
 /topg || [since]
 This server versus the global median.
 
-/mg-cleartopg
-Deletes this server's cached /topg cards so they're drawn fresh.
+!Player Stats
+/score || [user] [day]
+Shows someone's result for a day and where it ranks among today's players.
 
-/mg-clearcompare || [user]
-Deletes cached /compare cards (every pair someone's in, or every pair in this server after confirming) so they're drawn fresh.
+/top || [type] [since]
+Pages through this server's leaderboards (best, worst, average, games played).
 
-/mg-refetchtop
-Rebuilds this server's leaderboards now, then shows them.
+/topu || [user] [since]
+Shows someone's rank on every leaderboard, with a card charting their scores over that period.
+
+/compare || [user1] [user2] [since]
+Puts two players' ranks and scores side by side; with one, you against them, with none, you against this server.
+
+/drop || [day]
+Deletes your score for a day, or all of them, after confirming twice.
+
+!Admin
+/mg-track || [all]
+Starts reading results in this channel.
+
+/mg-untrack || [all]
+Stops reading results in this channel.
+
+/mg-mainchan
+Makes this channel the one daily reports are posted in.
+
+/mg-backfill
+Reads old results in this channel back to a date you pick.
 
 /mg-drop [user] [day]
 Deletes someone's score for a day (or every day, with -1) after confirming twice.
@@ -58,30 +58,33 @@ Leaves someone off the leaderboards.
 /mg-blacklist remove [user]
 Puts someone back on the leaderboards.
 
-/show || [all]
-Lists the channels where results are read.
+/mg-refetchtop
+Rebuilds this server's leaderboards now, then shows them.
 
-/mg-track || [all]
-Starts reading results in this channel.
+/mg-cleartopu || [user]
+Deletes cached /topu cards (someone's, or everyone's in this server after confirming) so they're drawn fresh.
 
-/mg-untrack || [all]
-Stops reading results in this channel.
+/mg-cleartopg
+Deletes this server's cached /topg cards so they're drawn fresh.
 
-/mg-mainchan
-Makes this channel the one daily reports are posted in.
-
-/mg-backfill
-Reads old results in this channel back to a date you pick.
-
-/rank || [user]
-Shows someone's bot rank.
+/mg-clearcompare || [user]
+Deletes cached /compare cards (every pair someone's in, or every pair in this server after confirming) so they're drawn fresh.
 
 /mg-modrank [user] [rank]
 Sets someone's bot rank (below your own).
+
+!Miscellaneous
+/help
+Pages through every command, by section.
+
+/show || [all]
+Lists the channels where results are read.
+
+/rank || [user]
+Shows someone's bot rank.
 
 /ping
 Checks the bot is responding.
 
 /version
 Shows the bot's version.
-
