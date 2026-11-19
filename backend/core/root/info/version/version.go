@@ -44,11 +44,11 @@ func getUpdateStatus() (message string, err error) {
 	if err != nil {
 		return
 	}
+	defer resp.Body.Close() //nolint
 	if resp.StatusCode != 200 {
-		err = fmt.Errorf("%v %v", resp.StatusCode, resp.Body)
+		err = fmt.Errorf("github answered %s", resp.Status)
 		return
 	}
-	defer resp.Body.Close() //nolint
 
 	var data string
 	body, err := io.ReadAll(resp.Body)

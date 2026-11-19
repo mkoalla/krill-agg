@@ -1,4 +1,4 @@
-.PHONY : init built up down logs dev update live-daily dev-daily
+.PHONY : init built up down logs dev update live-daily dev-daily check
 .DEFAULT_GOAL := build # -> just make
 
 # setup data/ and link env
@@ -31,6 +31,15 @@ logs:
 # (set with /mg-mainchan) from the running bot. for cron
 live-daily:
 	@ docker compose exec -T main ./main ctl daily
+
+# the docker bot's version and whether a newer release is out. uses the
+# running container when there is one, else a throwaway one from the image
+check:
+	@ if [ -n "$$(docker compose ps --status running -q main)" ]; then \
+		docker compose exec -T main ./main check; \
+	else \
+		docker compose run --rm --no-deps -T main ./main check; \
+	fi
 
 # live-daily against a `make dev` bot (its socket is on this host's /tmp)
 dev-daily:

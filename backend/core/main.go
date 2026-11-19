@@ -166,6 +166,28 @@ func checkForUpdates() {
 	}
 }
 
+// `main check`: this binary's version, then whether a newer release is out.
+// standalone, no bot or socket needed
+func runCheck() int {
+	fmt.Printf("krill-agg %s (%s)\n", version.Version(), version.Source())
+	fetch, err := version.TryForUpdates()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Can't check for updates: %v\n", err)
+		return 1
+	}
+	if fetch == nil {
+		fmt.Println("Local build: no releases to compare against.")
+		return 0
+	}
+	message, err := fetch()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to check for updates: %v\n", err)
+		return 1
+	}
+	fmt.Println(message)
+	return 0
+}
+
 const CTL_USAGE = `usage: main ctl <command>
   daily   post today's report (fresh card) in every guild's main channel`
 
@@ -275,8 +297,10 @@ func main() {
 			os.Exit(0)
 		case "ctl":
 			os.Exit(runCtl(os.Args[2:]))
+		case "check":
+			os.Exit(runCheck())
 		default:
-			fmt.Printf("Run with no commands to start the bot, or `ctl` to drive a running one.")
+			fmt.Println("Run with no commands to start the bot, `check` to look for updates, or `ctl` to drive a running one.")
 			os.Exit(1)
 		}
 		return
